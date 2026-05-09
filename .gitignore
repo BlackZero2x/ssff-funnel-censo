@@ -3,6 +3,10 @@
 #  NO subir: credenciales, datos sensibles, temporales
 # ══════════════════════════════════════════════════════
 
+# ── Documentación interna (solo local, nunca subir) ───
+CLAUDE.md
+ANALISIS_METODOLOGIAS_MAYO_2026.md
+
 # ── Credenciales y configuración sensible ─────────────
 .env
 *.json          # token.json, credentials.json
