@@ -35,10 +35,18 @@ def _leer_env(path='.env'):
     return env
 
 _env = _leer_env('C:/proyectos/SSFF/.env')
-SQL_SERVER   = _env.get('SQL_SERVER',   'AUREN22\\AUREN')
-SQL_DATABASE = _env.get('SQL_DATABASE', 'eAuren')
-SQL_USER     = _env.get('SQL_USER',     'eauren')
-SQL_PASSWORD = _env.get('SQL_PASSWORD', 'eauren')
+
+def _env_requerida(clave):
+    """Lee una variable obligatoria del .env; aborta con mensaje claro si no existe."""
+    valor = _env.get(clave)
+    if not valor:
+        raise EnvironmentError(f"Variable '{clave}' no encontrada en .env — configúrala antes de ejecutar.")
+    return valor
+
+SQL_SERVER   = _env_requerida('SQL_SERVER')
+SQL_DATABASE = _env_requerida('SQL_DATABASE')
+SQL_USER     = _env_requerida('SQL_USER')
+SQL_PASSWORD = _env_requerida('SQL_PASSWORD')
 
 # ════════════════════════════════════════════════════════════════════════
 # PARAMETROS  <- ajustar rutas si es necesario
