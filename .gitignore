@@ -1,0 +1,47 @@
+# ══════════════════════════════════════════════════════
+#  .gitignore — Proyecto SSFF
+#  NO subir: credenciales, datos sensibles, temporales
+# ══════════════════════════════════════════════════════
+
+# ── Credenciales y configuración sensible ─────────────
+.env
+*.json          # token.json, credentials.json
+*.key
+
+# ── Archivos de datos (grandes o confidenciales) ───────
+*.csv
+*.xlsx
+*.xls
+temp_capturas/
+
+# ── Logs ───────────────────────────────────────────────
+*.log
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Entornos virtuales ─────────────────────────────────
+venv/
+env/
+.venv/
+.env/
+
+# ── IDEs y editores ────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+Desktop.ini
+
+# ── Windows ────────────────────────────────────────────
+$RECYCLE.BIN/
+ehthumbs.db
