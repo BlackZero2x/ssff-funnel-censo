@@ -1,0 +1,56 @@
+{
+  "my_number": "51975155264@c.us",
+
+  "groups": {
+    "Canal_SSFF_2026_Gestion": "120363278118591818@g.us"
+  },
+
+  "server_info": {
+    "host": "localhost",
+    "port": 8002,
+    "description": "Servidor compartido MOVISTAR + SSFF (AUREN)"
+  },
+
+  "ssff_config": {
+    "horarios_permitidos": {
+      "inicio": "08:00",
+      "fin": "18:00",
+      "dias": [0, 1, 2, 3, 4]
+    },
+    "max_mensajes_diarios": 30,
+    "intervalo_minimo_segundos": 3
+  },
+
+  "groups_supervisores": {
+    "F8": "",
+    "M0": "",
+    "K0": "",
+    "P0": "",
+    "V0": ""
+  },
+
+  "mentions": {
+    "supervisores": [],
+    "jefe_proyecto": {
+      "nombre": "",
+      "numero": ""
+    },
+    "gerente_comercial": {
+      "nombre": "",
+      "numero": ""
+    }
+  },
+
+  "message_variants": {
+    "reporte_generado": [
+      "📊 Cuotas de ventas SSFF ({mes}) generadas exitosamente. Ver adjunto.",
+      "✅ Reporte mensual de cuotas SSFF disponible. Revisar archivo adjunto.",
+      "🎯 Cuotas SSFF {mes} procesadas correctamente. Documento enviado."
+    ],
+    "error_generacion": [
+      "⚠️ Error al generar reporte de cuotas SSFF ({mes}). Contactar a TI.",
+      "❌ Fallo en procesamiento de cuotas SSFF. Revisar logs.",
+      "🔴 Error crítico en generación de cuotas. Requiere revisión manual."
+    ]
+  }
+}
