@@ -502,12 +502,9 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         # SUPERVISOR: X5:AH5 = outside border
         for cc in range(c_lbl, c_pct14 + 1):
             ws.cell(5, cc).border = brd_outside
-        # X5:X14 = left border
-        for rr in range(6, last_row + 1):
+        # X5:X14 = left border (incluye desde fila 5 encabezado hasta last_row datos)
+        for rr in range(5, last_row + 1):
             ws.cell(rr, c_lbl).border = brd_left_only
-        # X4:X14 = right border (incluye fila 4 de título)
-        for rr in range(4, last_row + 1):
-            ws.cell(rr, c_lbl).border = Border(right=Side(style='thin'))
         # Z4:Z14 = right border
         for rr in range(4, last_row + 1):
             ws.cell(rr, c_s14).border = brd_right_only
@@ -524,10 +521,10 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         for rr in range(4, last_row + 1):
             ws.cell(rr, c_pct14).border = brd_right_only
     else:
-        # ZONAL: K5:U5 = outside borders
+        # ZONAL: K5:U5 = outside border
         for cc in range(c_lbl, c_pct14 + 1):
             ws.cell(5, cc).border = brd_outside
-        # K5:K13 = left border (hasta fila 12 de datos = 6+6 pero último = last_row)
+        # K5:K13 = left border (desde fila 5 encabezado hasta last_row datos)
         for rr in range(5, last_row + 1):
             ws.cell(rr, c_lbl).border = brd_left_only
         # K4:K13, M4:M13, O4:O14, Q4:Q14, S4:S14, U4:U14 = right border
