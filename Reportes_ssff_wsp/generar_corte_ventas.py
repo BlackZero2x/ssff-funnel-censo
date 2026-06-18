@@ -601,6 +601,7 @@ Ejemplos:
   python generar_corte_ventas.py --hora 10          # hoy, corte 10AM
   python generar_corte_ventas.py --fecha 2026-06-17 --hora 14  # 17/06 a las 2PM
   python generar_corte_ventas.py --dias-atras 1 --hora 13      # ayer a la 1PM
+  python generar_corte_ventas.py --hora 10 --solo-excel        # solo generar Excel, sin WhatsApp
         """
     )
     ap.add_argument('--hora', type=int, default=None,
@@ -609,6 +610,8 @@ Ejemplos:
                     help='Fecha en formato YYYY-MM-DD (default: hoy)')
     ap.add_argument('--dias-atras', type=int, default=None,
                     help='Generar N días hacia atrás (ej: 1=ayer, 2=anteayer)')
+    ap.add_argument('--solo-excel', action='store_true',
+                    help='Generar solo el archivo Excel sin enviar a WhatsApp')
     args = ap.parse_args()
 
     # Resolver fecha
@@ -722,42 +725,45 @@ Ejemplos:
     wb.save(out)
     print(f'\n   Guardado: {out}')
 
-    # Envío automático a WhatsApp con comportamiento antibang
-    print('\n[5] Enviando reporte a WhatsApp...')
-    try:
-        from wa_sender_antibang import WABangSafeSender
-        import json
+    # Envío automático a WhatsApp con comportamiento antibang (si no está --solo-excel)
+    if not args.solo_excel:
+        print('\n[5] Enviando reporte a WhatsApp...')
+        try:
+            from wa_sender_antibang import WABangSafeSender
+            import json
 
-        # Cargar configuración
-        config_path = f'{OUT_DIR}/config.json'
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
+            # Cargar configuración
+            config_path = f'{OUT_DIR}/config.json'
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
 
-            sender = WABangSafeSender(wa_server_url="http://localhost:8002")
+                sender = WABangSafeSender(wa_server_url="http://localhost:8002")
 
-            # Verificar si puede enviar
-            if not sender._puede_enviar():
-                print('   ⚠️  Cuenta bloqueada, saltando envío')
-            else:
-                grupo_id = config.get('groups', {}).get('Canal_SSFF_2026_Gestion', '')
-                if not grupo_id:
-                    print('   ⚠️  ID de grupo no configurado en config.json')
+                # Verificar si puede enviar
+                if not sender._puede_enviar():
+                    print('   ⚠️  Cuenta bloqueada, saltando envío')
                 else:
-                    # Mensaje automático
-                    mensaje = f"📊 Corte de Ventas — {nombre_dia} {hoy.strftime('%d/%m/%Y')}\n⏰ Corte: {hora_lbl}\n✅ Reporte generado"
-
-                    if sender.send_to_group(grupo_id, mensaje, imagen_path=out):
-                        print(f'   ✅ Enviado a Canal SSFF')
+                    grupo_id = config.get('groups', {}).get('Canal_SSFF_2026_Gestion', '')
+                    if not grupo_id:
+                        print('   ⚠️  ID de grupo no configurado en config.json')
                     else:
-                        print(f'   ❌ Error al enviar a WhatsApp')
-        else:
-            print(f'   ⚠️  config.json no encontrado (saltando envío automático)')
+                        # Mensaje automático
+                        mensaje = f"📊 Corte de Ventas — {nombre_dia} {hoy.strftime('%d/%m/%Y')}\n⏰ Corte: {hora_lbl}\n✅ Reporte generado"
 
-    except ImportError:
-        print('   ⚠️  wa_sender_antibang no disponible (saltando envío)')
-    except Exception as e:
-        print(f'   ❌ Error en envío: {e}')
+                        if sender.send_to_group(grupo_id, mensaje, imagen_path=out):
+                            print(f'   ✅ Enviado a Canal SSFF')
+                        else:
+                            print(f'   ❌ Error al enviar a WhatsApp')
+            else:
+                print(f'   ⚠️  config.json no encontrado (saltando envío automático)')
+
+        except ImportError:
+            print('   ⚠️  wa_sender_antibang no disponible (saltando envío)')
+        except Exception as e:
+            print(f'   ❌ Error en envío: {e}')
+    else:
+        print('\n[5] Omitiendo envío a WhatsApp (--solo-excel activo)')
 
     print('\nProceso completado OK.')
 
