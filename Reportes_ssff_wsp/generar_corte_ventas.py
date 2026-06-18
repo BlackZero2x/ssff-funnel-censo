@@ -357,7 +357,7 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
                        data_fill, etiqueta_col, filas, datos, fechas, nombre_dia,
                        hora_lbl, n_filas_fijo, cuota_sup=None):
     """Genérico para ZONAL (col0=11/K) y SUPERVISOR (col0=24/X).
-    Para SUPERVISOR: agrega columnas Cuota_Día y %Avance.
+    Para SUPERVISOR: agrega columnas Cuota_Día y %Avance, SOLO % en difs.
     datos: dict {fila_label: {'d14':(ped,sol),'d7':(..),'d':(..)}}."""
     c = col0
     L = get_column_letter
@@ -366,16 +366,17 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
     es_supervisor = (etiqueta_col == 'Supervisor')
 
     if es_supervisor:
-        # [X][Y Z][AA AB][AC AD][AE][AF][AG AH]
-        # Label, P14 S14, P7 S7, Pd Sd, Cuota, %Avance, Dif7 %7, Dif14 %14
+        # [X][Y Z][AA AB][AC AD][AE AF][AG AH]
+        # Label, P14 S14, P7 S7, Pd Sd, Cuota %Avance, %Dif7, %Dif14
+        # IMPORTANTE: SOLO columnas de % en diferencias (sin Diferencia numérica)
         c_lbl = c
         c_p14, c_s14 = c+1, c+2
         c_p7,  c_s7  = c+3, c+4
         c_pd,  c_sd  = c+5, c+6
         c_cuota = c+7
         c_pct_avance = c+8
-        c_dif7, c_pct7 = c+9, c+10
-        c_dif14, c_pct14 = c+11, c+12
+        c_pct7 = c+9      # SOLO % para [D-7] vs [D]
+        c_pct14 = c+10    # SOLO % para [D-14] vs [D]
     else:
         # ZONAL: [K][L M][N O][P Q][R S][T U]
         # Label, P14 S14, P7 S7, Pd Sd, Dif7 %7, Dif14 %14
@@ -387,14 +388,14 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         c_dif14, c_pct14 = c+9, c+10
 
     # Título: texto en col0 + relleno
-    # SUPERVISOR: extiende hasta col0+8 (c+8 = c_dif7-1)
-    # ZONAL: igual hasta col0+8
-    relleno_fin = c + 9 if es_supervisor else c + 9
+    # SUPERVISOR: [X][Y Z][AA AB][AC AD][AE AF] = 9 columnas (c a c+8), Corte en AG-AH (c+9, c+10)
+    # ZONAL: [K][L M][N O][P Q][R S] = 9 columnas (c a c+8), Corte en T-U (c+9, c+10)
+    relleno_fin = c + 9  # siempre hasta col+9 para ambas
     for cc in range(c, relleno_fin):
         _set(ws, 2, cc, titulo if cc == c else None,
              font=fnt(bold=True, italic=True, size=14, color=C_BLANCO),
              fill=fill(tit_color), align=aln('left') if cc == c else aln())
-    # Corte en últimas 2 columnas (AG, AH para SUPERVISOR; T,U para ZONAL)
+    # Corte en últimas 2 columnas
     _cabecera_corte(ws, relleno_fin, relleno_fin + 1, hora_lbl)
 
     # Fila 4: bandas de fecha por día (cada una merge de 2 cols) + extras
@@ -405,36 +406,40 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         _set(ws, 4, cc, txt, font=fnt(italic=True, size=10), fill=fill(hdr_color), align=aln())
 
     # Para SUPERVISOR: agregar "Seguimiento del día" (merge AE4:AF4)
+    # SIN fill, font color verde (006C50, mismo que dif_color)
     if es_supervisor:
         ws.merge_cells(start_row=4, start_column=c_cuota, end_row=4, end_column=c_pct_avance)
-        _set(ws, 4, c_cuota, 'Seguimiento del día', font=fnt(italic=True, size=10),
-             fill=fill(hdr_color), align=aln())
-
-    # Diferencias: merge + color
-    ws.merge_cells(start_row=4, start_column=c_dif7, end_row=4, end_column=c_pct7)
-    dif7_txt = '% Diferencia' if es_supervisor else '[D-7] vs. [D]'
-    _set(ws, 4, c_dif7, dif7_txt, font=fnt(italic=True, size=10, color=dif_font),
-         fill=fill(dif_color), align=aln())
-    ws.merge_cells(start_row=4, start_column=c_dif14, end_row=4, end_column=c_pct14)
-    dif14_txt = '% Diferencia' if es_supervisor else '[D-14] vs. [D]'
-    _set(ws, 4, c_dif14, dif14_txt, font=fnt(italic=True, size=10, color=dif_font),
-         fill=fill(dif_color), align=aln())
+        _set(ws, 4, c_cuota, 'Seguimiento del día',
+             font=fnt(bold=True, italic=True, size=10, color='006C50'),
+             fill=fill('FFFFFF'), align=aln())
+        # % Diferencia: merge AG4:AH4, SIN fill, font verde
+        ws.merge_cells(start_row=4, start_column=c_pct7, end_row=4, end_column=c_pct14)
+        _set(ws, 4, c_pct7, '% Diferencia',
+             font=fnt(bold=True, italic=True, size=10, color='006C50'),
+             fill=fill('FFFFFF'), align=aln())
+    else:
+        # ZONAL: bandas de diferencia con color
+        ws.merge_cells(start_row=4, start_column=c_dif7, end_row=4, end_column=c_pct7)
+        _set(ws, 4, c_dif7, '[D-7] vs. [D]', font=fnt(italic=True, size=10, color=dif_font),
+             fill=fill(dif_color), align=aln())
+        ws.merge_cells(start_row=4, start_column=c_dif14, end_row=4, end_column=c_pct14)
+        _set(ws, 4, c_dif14, '[D-14] vs. [D]', font=fnt(italic=True, size=10, color=dif_font),
+             fill=fill(dif_color), align=aln())
 
     # Fila 5: encabezados
     if es_supervisor:
+        # SUPERVISOR: SOLO % en diferencias, sin columnas "Diferencia" numérica
         headers = [(c_lbl, 'Supervisor'), (c_p14, 'Pedidos'), (c_s14, 'Soles'),
                    (c_p7, 'Pedidos'), (c_s7, 'Soles'), (c_pd, 'Pedidos'), (c_sd, 'Soles'),
                    (c_cuota, 'Cuota_Día'), (c_pct_avance, '%Avance'),
-                   (c_dif7, '[D-7] vs. [D]'), (c_pct7, None),
-                   (c_dif14, '[D-14] vs. [D]'), (c_pct14, None)]
+                   (c_pct7, '[D-7] vs. [D]'), (c_pct14, '[D-14] vs. [D]')]
     else:
         headers = [(c_lbl, etiqueta_col), (c_p14, 'Pedidos'), (c_s14, 'Soles'),
                    (c_p7, 'Pedidos'), (c_s7, 'Soles'), (c_pd, 'Pedidos'), (c_sd, 'Soles'),
                    (c_dif7, 'Diferencia'), (c_pct7, '%Dif.'),
                    (c_dif14, 'Diferencia'), (c_pct14, '%Dif.')]
     for cc, txt in headers:
-        if txt:
-            _set(ws, 5, cc, txt, font=fnt(bold=True), align=aln(), border=brd_all())
+        _set(ws, 5, cc, txt, font=fnt(bold=True), align=aln(), border=brd_all())
 
     # Filas de datos — DAMERO (par=gris, impar=blanco)
     for i, fila_lbl in enumerate(filas):
@@ -449,51 +454,62 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
                 (c_p7, p7, 'General'),   (c_s7, round(s7, 2), FMT_NUM_SIN_DEC),
                 (c_pd, pd_, 'General'),  (c_sd, round(sd, 2), FMT_NUM_SIN_DEC)]  # Soles sin decimales
         for cc, val, fmt in vals:
-            _set(ws, r, cc, val, font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=fmt)
+            # Bordes: separador entre pares (RIGHT en primera, LEFT en segunda)
+            has_left = (cc in (c_s14, c_s7, c_sd))
+            has_right = (cc in (c_p14, c_p7, c_pd))
+            _set(ws, r, cc, val, font=fnt(), fill=fill(color_fila_cat), align=aln(),
+                 fmt=fmt, border=brd(left=has_left, right=has_right))
 
         # Para SUPERVISOR: agregar Cuota_Día y %Avance
         if es_supervisor and cuota_sup:
             cuota_dia = cuota_sup.get(fila_lbl, 0.0)
             _set(ws, r, c_cuota, cuota_dia, font=fnt(), fill=fill(color_fila_cat),
-                 align=aln(), fmt=FMT_NUM_SIN_DEC)
-            # %Avance = IFERROR(AD/AE, "-")
+                 align=aln(), fmt=FMT_NUM_SIN_DEC, border=brd())
+            # %Avance = IFERROR(AD/AE, "-"), con LEFT border
             sd_c = L(c_sd)
             cuota_c = L(c_cuota)
             _set(ws, r, c_pct_avance, f'=IFERROR({sd_c}{r}/{cuota_c}{r},"-")',
-                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
+                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT,
+                 border=brd(left=True, right=True))
 
-        # Comparativos (sobre Soles) como fórmulas vivas — con DAMERO
-        # Para SUPERVISOR: Dif=(Pd-Ps), %=Dif/Ps ; Dif14=(Pd-Ps14), %=Dif14/Ps14
-        # Para ZONAL: mismo
-        sd_c, s7_c, s14_c = L(c_sd), L(c_s7), L(c_s14)
-        dif7_c, dif14_c = L(c_dif7), L(c_dif14)
-        _set(ws, r, c_dif7, f'=({sd_c}{r}-{s7_c}{r})', font=fnt(), fill=fill(color_fila_cat),
-             align=aln(), fmt=FMT_DIF_NUM)
-        _set(ws, r, c_pct7, f'=({sd_c}{r}-{s7_c}{r})/{s7_c}{r}', font=fnt(), fill=fill(color_fila_cat),
-             align=aln('right'), fmt=FMT_PCT)
-        _set(ws, r, c_dif14, f'=({sd_c}{r}-{s14_c}{r})', font=fnt(), fill=fill(color_fila_cat),
-             align=aln(), fmt=FMT_DIF_NUM)
-        _set(ws, r, c_pct14, f'=({sd_c}{r}-{s14_c}{r})/{s14_c}{r}', font=fnt(), fill=fill(color_fila_cat),
-             align=aln('right'), border=brd(right=True), fmt=FMT_PCT)
+            # Para SUPERVISOR: SOLO % en diferencias (sin columnas numérica)
+            # %Dif7 = (Pd-Ps7)/Ps7, %Dif14 = (Pd-Ps14)/Ps14
+            # AG: LEFT border, AH: RIGHT border
+            s7_c, s14_c = L(c_s7), L(c_s14)
+            _set(ws, r, c_pct7, f'=({sd_c}{r}-{s7_c}{r})/{s7_c}{r}',
+                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT,
+                 border=brd(left=True))
+            _set(ws, r, c_pct14, f'=({sd_c}{r}-{s14_c}{r})/{s14_c}{r}',
+                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT,
+                 border=brd(right=True))
+        else:
+            # Para ZONAL: Dif + % en ambas columnas
+            sd_c, s7_c, s14_c = L(c_sd), L(c_s7), L(c_s14)
+            dif7_c, dif14_c = L(c_dif7), L(c_dif14)
+            _set(ws, r, c_dif7, f'=({sd_c}{r}-{s7_c}{r})', font=fnt(), fill=fill(color_fila_cat),
+                 align=aln(), fmt=FMT_DIF_NUM)
+            _set(ws, r, c_pct7, f'=IFERROR({dif7_c}{r}/{s7_c}{r},0)', font=fnt(), fill=fill(color_fila_cat),
+                 align=aln('right'), fmt=FMT_PCT)
+            _set(ws, r, c_dif14, f'=({sd_c}{r}-{s14_c}{r})', font=fnt(), fill=fill(color_fila_cat),
+                 align=aln(), fmt=FMT_DIF_NUM)
+            _set(ws, r, c_pct14, f'=IFERROR({dif14_c}{r}/{s14_c}{r},0)', font=fnt(), fill=fill(color_fila_cat),
+                 align=aln('right'), border=brd(right=True), fmt=FMT_PCT)
 
-    # Iconos en %Dif (para ZONAL) o Diferencia (para SUPERVISOR)
+    # Iconos en %Dif (ambas tablas tienen iconos en las columnas de %)
     last_row = 6 + len(filas) - 1
-    if not es_supervisor:
-        ws.conditional_formatting.add(f'{L(c_pct7)}6:{L(c_pct7)}{last_row}', _icon_rule())
-        ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{last_row}', _icon_rule())
+    ws.conditional_formatting.add(f'{L(c_pct7)}6:{L(c_pct7)}{last_row}', _icon_rule())
+    ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{last_row}', _icon_rule())
 
     # Anchos
     if es_supervisor:
-        # SUPERVISOR: [X][Y Z][AA AB][AC AD][AE][AF][AG AH]
+        # SUPERVISOR: [X][Y Z][AA AB][AC AD][AE AF][AG AH]
         ws.column_dimensions[L(c_lbl)].width = 21.71
         for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
             ws.column_dimensions[L(cc)].width = 9.71
         ws.column_dimensions[L(c_cuota)].width = 14.0
         ws.column_dimensions[L(c_pct_avance)].width = 7.71
-        ws.column_dimensions[L(c_dif7)].width = 14.0
-        ws.column_dimensions[L(c_pct7)].width = 7.71
-        ws.column_dimensions[L(c_dif14)].width = 14.0
-        ws.column_dimensions[L(c_pct14)].width = 7.71
+        ws.column_dimensions[L(c_pct7)].width = 14.0
+        ws.column_dimensions[L(c_pct14)].width = 14.0
     else:
         # ZONAL
         ws.column_dimensions[L(c_lbl)].width = 13.0
