@@ -454,34 +454,26 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
                 (c_p7, p7, 'General'),   (c_s7, round(s7, 2), FMT_NUM_SIN_DEC),
                 (c_pd, pd_, 'General'),  (c_sd, round(sd, 2), FMT_NUM_SIN_DEC)]  # Soles sin decimales
         for cc, val, fmt in vals:
-            # Bordes: separador entre pares (RIGHT en primera, LEFT en segunda)
-            has_left = (cc in (c_s14, c_s7, c_sd))
-            has_right = (cc in (c_p14, c_p7, c_pd))
-            _set(ws, r, cc, val, font=fnt(), fill=fill(color_fila_cat), align=aln(),
-                 fmt=fmt, border=brd(left=has_left, right=has_right))
+            _set(ws, r, cc, val, font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=fmt)
 
         # Para SUPERVISOR: agregar Cuota_Día y %Avance
         if es_supervisor and cuota_sup:
             cuota_dia = cuota_sup.get(fila_lbl, 0.0)
             _set(ws, r, c_cuota, cuota_dia, font=fnt(), fill=fill(color_fila_cat),
-                 align=aln(), fmt=FMT_NUM_SIN_DEC, border=brd())
-            # %Avance = IFERROR(AD/AE, "-"), con LEFT border
+                 align=aln(), fmt=FMT_NUM_SIN_DEC)
+            # %Avance = IFERROR(AD/AE, "-")
             sd_c = L(c_sd)
             cuota_c = L(c_cuota)
             _set(ws, r, c_pct_avance, f'=IFERROR({sd_c}{r}/{cuota_c}{r},"-")',
-                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT,
-                 border=brd(left=True, right=True))
+                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
 
             # Para SUPERVISOR: SOLO % en diferencias (sin columnas numérica)
             # %Dif7 = (Pd-Ps7)/Ps7, %Dif14 = (Pd-Ps14)/Ps14
-            # AG: LEFT border, AH: RIGHT border
             s7_c, s14_c = L(c_s7), L(c_s14)
             _set(ws, r, c_pct7, f'=({sd_c}{r}-{s7_c}{r})/{s7_c}{r}',
-                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT,
-                 border=brd(left=True))
+                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT)
             _set(ws, r, c_pct14, f'=({sd_c}{r}-{s14_c}{r})/{s14_c}{r}',
-                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT,
-                 border=brd(right=True))
+                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT)
         else:
             # Para ZONAL: Dif + % en ambas columnas
             sd_c, s7_c, s14_c = L(c_sd), L(c_s7), L(c_s14)
@@ -493,12 +485,56 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             _set(ws, r, c_dif14, f'=({sd_c}{r}-{s14_c}{r})', font=fnt(), fill=fill(color_fila_cat),
                  align=aln(), fmt=FMT_DIF_NUM)
             _set(ws, r, c_pct14, f'=IFERROR({dif14_c}{r}/{s14_c}{r},0)', font=fnt(), fill=fill(color_fila_cat),
-                 align=aln('right'), border=brd(right=True), fmt=FMT_PCT)
+                 align=aln('right'), fmt=FMT_PCT)
 
     # Iconos en %Dif (ambas tablas tienen iconos en las columnas de %)
     last_row = 6 + len(filas) - 1
     ws.conditional_formatting.add(f'{L(c_pct7)}6:{L(c_pct7)}{last_row}', _icon_rule())
     ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{last_row}', _icon_rule())
+
+    # APLICAR BORDES ESPECÍFICOS
+    brd_outside = Border(left=Side(style='thin'), right=Side(style='thin'),
+                         top=Side(style='thin'), bottom=Side(style='thin'))
+    brd_left_only = Border(left=Side(style='thin'))
+    brd_right_only = Border(right=Side(style='thin'))
+
+    if es_supervisor:
+        # SUPERVISOR: X5:AH5 = outside border
+        for cc in range(c_lbl, c_pct14 + 1):
+            ws.cell(5, cc).border = brd_outside
+        # X5:X14 = left border
+        for rr in range(6, last_row + 1):
+            ws.cell(rr, c_lbl).border = brd_left_only
+        # X4:X14 = right border (incluye fila 4 de título)
+        for rr in range(4, last_row + 1):
+            ws.cell(rr, c_lbl).border = Border(right=Side(style='thin'))
+        # Z4:Z14 = right border
+        for rr in range(4, last_row + 1):
+            ws.cell(rr, c_s14).border = brd_right_only
+        # AB4:AB14 = right border
+        for rr in range(4, last_row + 1):
+            ws.cell(rr, c_s7).border = brd_right_only
+        # AD4:AD14 = right border
+        for rr in range(4, last_row + 1):
+            ws.cell(rr, c_sd).border = brd_right_only
+        # AF4:AF14 = right border
+        for rr in range(4, last_row + 1):
+            ws.cell(rr, c_pct_avance).border = brd_right_only
+        # AH4:AH14 = right border
+        for rr in range(4, last_row + 1):
+            ws.cell(rr, c_pct14).border = brd_right_only
+    else:
+        # ZONAL: K5:U5 = outside borders
+        for cc in range(c_lbl, c_pct14 + 1):
+            ws.cell(5, cc).border = brd_outside
+        # K5:K13 = left border (hasta fila 12 de datos = 6+6 pero último = last_row)
+        for rr in range(5, last_row + 1):
+            ws.cell(rr, c_lbl).border = brd_left_only
+        # K4:K13, M4:M13, O4:O14, Q4:Q14, S4:S14, U4:U14 = right border
+        right_border_cols = [c_lbl, c_s14, c_s7, c_sd, c_pct7, c_pct14]
+        for cc in right_border_cols:
+            for rr in range(4, last_row + 1):
+                ws.cell(rr, cc).border = brd_right_only
 
     # Anchos
     if es_supervisor:
@@ -507,12 +543,12 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
             ws.column_dimensions[L(cc)].width = 9.71
         ws.column_dimensions[L(c_cuota)].width = 14.0
-        ws.column_dimensions[L(c_pct_avance)].width = 7.71
+        ws.column_dimensions[L(c_pct_avance)].width = 9.0     # cambio: 7.71 → 9.0
         ws.column_dimensions[L(c_pct7)].width = 14.0
         ws.column_dimensions[L(c_pct14)].width = 14.0
     else:
         # ZONAL
-        ws.column_dimensions[L(c_lbl)].width = 13.0
+        ws.column_dimensions[L(c_lbl)].width = 16.0           # cambio: 13.0 → 16.0
         for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
             ws.column_dimensions[L(cc)].width = 9.71
         ws.column_dimensions[L(c_dif7)].width = 14.0
