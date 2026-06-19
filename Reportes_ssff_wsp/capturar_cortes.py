@@ -18,13 +18,18 @@ Uso:
 import argparse
 import logging
 import json
+import random
+import sys
 import time
 from pathlib import Path
 from datetime import datetime
 import xlwings as xw
 
 from screenshot_safe import ScreenshotManager, capturar_tabla_excel
-from wa_sender_antibang import WABangSafeSender
+
+# Importar wa_client.py (mismo patrón que el resto del proyecto)
+sys.path.insert(0, str(Path(__file__).parent))
+from wa_client import WhatsAppClient
 
 # ════════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -160,44 +165,36 @@ def enviar_corte_whatsapp(imagenes: dict, destino: str, hora: int, config: dict)
         numero_destino = destinos.get(destino)
 
         if not numero_destino:
-            _logger.error(f"[ERROR] Destino '{destino}' no configurado")
+            _logger.error(f"[ERROR] Destino '{destino}' no configurado en cortes_horarios.destinos")
             return False
 
-        # Inicializar sender antibang
-        sender = WABangSafeSender()
+        # Usar wa_client.py (mismo patrón que el resto del proyecto)
+        wa = WhatsAppClient()
 
-        # Mensaje con etiqueta
-        msg = f"{msg_titulo}\n\nGENERAL\n"
-
-        # Enviar 3 imágenes secuencialmente con delays
         archivos = [
-            ('GENERAL', imagenes.get('general')),
-            ('ZONAL', imagenes.get('zonal')),
+            ('GENERAL',    imagenes.get('general')),
+            ('ZONAL',      imagenes.get('zonal')),
             ('SUPERVISOR', imagenes.get('supervisor')),
         ]
 
         for nombre_tabla, ruta_img in archivos:
             if not ruta_img or not Path(ruta_img).exists():
-                _logger.warning(f"[WARN]  Imagen no encontrada: {ruta_img}")
+                _logger.warning(f"[WARN] Imagen no encontrada: {ruta_img}")
                 continue
 
-            msg_img = f"{msg_titulo} - {nombre_tabla}"
+            caption = f"{msg_titulo} - {nombre_tabla}"
+            _logger.info(f"[SEND] Enviando {nombre_tabla} a {numero_destino}...")
 
-            _logger.info(f"[SEND] Enviando {nombre_tabla} a {destino}...")
+            resultado = wa.send_image(numero_destino, ruta_img, caption=caption)
 
-            exito = sender.send_to_group(
-                numero_destino,
-                msg_img,
-                imagen_path=ruta_img
-            )
-
-            if not exito:
-                _logger.error(f"[ERROR] Fallo enviando {nombre_tabla}")
+            if not resultado.get('success'):
+                _logger.error(f"[ERROR] Fallo enviando {nombre_tabla}: {resultado.get('error')}")
                 return False
 
-            time.sleep(2)  # Pausa entre imágenes
+            _logger.info(f"[OK] {nombre_tabla} enviado")
+            time.sleep(random.uniform(3, 6))  # delay antibang entre imágenes
 
-        _logger.info(f"[OK] Corte {etiqueta_hora} enviado a {destino}")
+        _logger.info(f"[OK] Corte {etiqueta_hora} enviado a {destino} ({numero_destino})")
         return True
 
     except Exception as e:
@@ -232,7 +229,7 @@ def main():
             _logger.error("[ERROR] No se encontró CORTE_VENTAS_*.xlsx")
             return
         args.archivo = str(excels[0])
-        _logger.info(f"📁 Usando: {args.archivo}")
+        _logger.info(f"[FILE] Usando: {args.archivo}")
 
     # Validar que existe
     if not Path(args.archivo).exists():
