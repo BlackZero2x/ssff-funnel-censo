@@ -6,10 +6,7 @@ Programa ejecuciones automáticas de cortes horarios en Windows Task Scheduler.
 Ejecuta: python programar_cortes.py
 
 Crea tareas programadas para:
-  8 AM  → generar_corte_ventas (Excel) + capturar_cortes (imágenes WhatsApp)
-  9 AM  → capturar_cortes
-  10 AM → capturar_cortes
-  ... y así hasta 6 PM
+  8–18 AM  → generar_corte_ventas (Excel con hora correcta) + capturar_cortes (imágenes WhatsApp)
 
 Sincronización de recursos:
 - Múltiples proyectos (SSFF, MOVISTAR, etc.) pueden capturar screenshot al mismo
@@ -55,19 +52,15 @@ def crear_tarea_windows(hora: int, etiqueta: str):
         etiqueta: Etiqueta amigable (8AM, 10AM, etc.)
 
     Flujo por hora:
-    - 8 AM (primera): Genera Excel (generar_corte_ventas.py) + captura imágenes
-    - 9-18 AM: Solo captura imágenes del Excel más reciente
+    - Todas las horas: regenera Excel con la hora exacta + captura imágenes
     """
 
     # Nombre de la tarea
     nombre_tarea = f"SSFF_Corte_{etiqueta}"
 
-    # Primera tarea (8 AM): genera Excel + captura
-    # Otras tareas: solo capturan del Excel más reciente
-    if hora == 8:
-        cmd = f'python "{SCRIPT_GENERAR}" --hora {hora} && python "{SCRIPT_CAPTURAR}" --hora {hora} --destino test'
-    else:
-        cmd = f'python "{SCRIPT_CAPTURAR}" --hora {hora} --destino test'
+    # Todas las horas: regenerar Excel con la hora correcta + capturar
+    cmd = (f'python "{SCRIPT_GENERAR}" --hora {hora} --solo-excel & '
+           f'python "{SCRIPT_CAPTURAR}" --hora {hora} --destino canal')
 
     # Crear tarea con SCHTASKS
     schtasks_cmd = [

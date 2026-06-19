@@ -67,73 +67,129 @@ def cargar_config() -> dict:
         raise
 
 
+def detectar_rangos_vendedor(archivo_excel: str) -> list:
+    """
+    Lee la hoja VENDEDOR con openpyxl y detecta el rango A:K de cada tabla
+    de supervisor buscando filas cuya celda A tiene fondo #403151 (título).
+
+    Retorna lista de (nombre_supervisor, rango_excel) p.ej.:
+        [("DIANA MADALENGOITIA", "A1:K15"), ("EDWIN VIELMA", "A20:K31"), ...]
+    """
+    import openpyxl
+    try:
+        wb = openpyxl.load_workbook(archivo_excel, data_only=True)
+        if 'VENDEDOR' not in wb.sheetnames:
+            return []
+        ws = wb['VENDEDOR']
+        max_row = ws.max_row
+
+        COLOR_TIT = {'403151', 'FF403151', '00403151'}
+
+        bloques = []
+        i = 1
+        while i <= max_row:
+            c = ws.cell(i, 1)
+            fg = c.fill.fgColor
+            color = fg.rgb if fg.type == 'rgb' else ''
+            if color.upper().lstrip('0') in {'403151'} or color.upper() in {'FF403151', '00403151'}:
+                nombre_sup = str(c.value or '').strip()
+                fila_ini = i
+                # Buscar la fila TOTAL: siguiente fila con mismo color o "TOTAL" en col A
+                fila_fin = fila_ini
+                for j in range(i + 1, min(i + 30, max_row + 1)):
+                    v = ws.cell(j, 1).value
+                    if v and str(v).strip() == 'TOTAL':
+                        fila_fin = j
+                        break
+                if fila_fin == fila_ini:
+                    fila_fin = i  # tabla vacía, saltar
+                rango = f'A{fila_ini}:K{fila_fin}'
+                bloques.append((nombre_sup, rango))
+                i = fila_fin + 1
+            else:
+                i += 1
+
+        return bloques
+    except Exception as e:
+        _logger.error(f"[ERROR] detectar_rangos_vendedor: {e}")
+        return []
+
+
 def capturar_tablas(archivo_excel: str, hora: int) -> dict:
     """
-    Captura 3 tablas del Excel como PNG.
+    Captura las tablas del Excel como PNG:
+      - Hoja CORTE VENTAS: GENERAL, ZONAL, SUPERVISOR (rangos fijos)
+      - Hoja VENDEDOR: una imagen por supervisor (rangos detectados dinámicamente)
 
-    Args:
-        archivo_excel: Ruta al CORTE_VENTAS_*.xlsx
-        hora: Hora (8-18)
-
-    Returns:
+    Retorna:
         {
             'exito': bool,
-            'general': 'path/a/GENERAL.png',
-            'zonal': 'path/a/ZONAL.png',
-            'supervisor': 'path/a/SUPERVISOR.png'
+            'general': ruta_png,
+            'zonal': ruta_png,
+            'supervisor': ruta_png,
+            'vendedor': [(nombre_sup, ruta_png), ...]
         }
     """
     etiqueta_hora = HORA_LBL.get(hora, f"{hora}H")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Adquirir lock exclusivo
     mgr = ScreenshotManager(f"SSFF_Corte_{etiqueta_hora}")
-
     if not mgr.adquirir_lock(timeout=30):
         _logger.error(f"[ERROR] Timeout esperando lock para {etiqueta_hora}")
         return {'exito': False}
 
-    resultado = {'exito': False, 'general': None, 'zonal': None, 'supervisor': None}
+    resultado = {'exito': False, 'general': None, 'zonal': None,
+                 'supervisor': None, 'vendedor': []}
 
     try:
-        # Abrir archivo con xlwings
         app = xw.App(visible=True)
         libro = app.books.open(archivo_excel)
-        hoja = libro.sheets[0]  # Primera hoja
 
-        # Rangos de las 3 tablas
-        tablas = {
-            'general': ('A2:H8', f'GENERAL_{etiqueta_hora}_{timestamp}.png'),
-            'zonal': ('K2:U12', f'ZONAL_{etiqueta_hora}_{timestamp}.png'),
-            'supervisor': ('X2:AH14', f'SUPERVISOR_{etiqueta_hora}_{timestamp}.png'),
-        }
-
-        for nombre, (rango, archivo) in tablas.items():
-            ruta_png = IMAGENES_DIR / archivo
-
-            _logger.info(f"[CAPTURE] Capturando {nombre.upper()} ({rango})...")
-
-            if capturar_tabla_excel(hoja, rango, str(ruta_png), escala=2.5):
+        # ── Hoja CORTE VENTAS: 3 tablas con rangos fijos ──────────────────────
+        hoja_cv = libro.sheets['CORTE VENTAS']
+        tablas_cv = [
+            ('general',    'A2:H8'),
+            ('zonal',      'K2:U15'),   # hasta fila TOTAL (8 zonas + TOTAL = fila 14/15)
+            ('supervisor', 'X2:AH16'),  # hasta fila TOTAL (9 supervisores + TOTAL)
+        ]
+        for nombre, rango in tablas_cv:
+            ruta_png = IMAGENES_DIR / f'{nombre.upper()}_{etiqueta_hora}_{timestamp}.png'
+            _logger.info(f"[CAPTURE] {nombre.upper()} ({rango})...")
+            if capturar_tabla_excel(hoja_cv, rango, str(ruta_png), escala=2.5):
                 resultado[nombre] = str(ruta_png)
-                _logger.info(f"[OK] {nombre.upper()} guardado: {ruta_png}")
+                _logger.info(f"[OK] {nombre.upper()} guardado")
             else:
-                _logger.error(f"[ERROR] Fallo capturando {nombre.upper()}")
+                _logger.error(f"[ERROR] Fallo {nombre.upper()}")
+            time.sleep(0.5)
 
-            time.sleep(0.5)  # Pausa entre capturas
-
-        resultado['exito'] = all(resultado[k] for k in ['general', 'zonal', 'supervisor'])
-
-        if resultado['exito']:
-            _logger.info(f"[OK] Todas las tablas capturadas para {etiqueta_hora}")
+        # ── Hoja VENDEDOR: una captura por supervisor ──────────────────────────
+        rangos_vend = detectar_rangos_vendedor(archivo_excel)
+        if rangos_vend and 'VENDEDOR' in [s.name for s in libro.sheets]:
+            hoja_v = libro.sheets['VENDEDOR']
+            for nombre_sup, rango in rangos_vend:
+                slug = nombre_sup.replace(' ', '_')[:20]
+                ruta_png = IMAGENES_DIR / f'VEND_{slug}_{etiqueta_hora}_{timestamp}.png'
+                _logger.info(f"[CAPTURE] VENDEDOR {nombre_sup} ({rango})...")
+                if capturar_tabla_excel(hoja_v, rango, str(ruta_png), escala=2.5):
+                    resultado['vendedor'].append((nombre_sup, str(ruta_png)))
+                    _logger.info(f"[OK] {nombre_sup} guardado")
+                else:
+                    _logger.error(f"[ERROR] Fallo VENDEDOR {nombre_sup}")
+                time.sleep(0.5)
         else:
-            _logger.error(f"[ERROR] Algunas tablas fallaron para {etiqueta_hora}")
+            _logger.warning("[WARN] Hoja VENDEDOR no encontrada o sin tablas")
 
         libro.close()
         app.quit()
 
+        resultado['exito'] = all(resultado[k] for k in ['general', 'zonal', 'supervisor'])
+        if resultado['exito']:
+            _logger.info(f"[OK] Captura completada — {len(resultado['vendedor'])} tablas vendedor")
+        else:
+            _logger.error("[ERROR] Algunas tablas principales fallaron")
+
     except Exception as e:
         _logger.error(f"[ERROR] Error durante captura: {e}")
-
     finally:
         mgr.liberar_lock()
 
@@ -171,34 +227,79 @@ def enviar_corte_whatsapp(imagenes: dict, destino: str, hora: int, config: dict)
         # Usar wa_client.py (mismo patrón que el resto del proyecto)
         wa = WhatsAppClient()
 
-        archivos = [
+        # Tablas principales: GENERAL, ZONAL, SUPERVISOR
+        archivos_principales = [
             ('GENERAL',    imagenes.get('general')),
             ('ZONAL',      imagenes.get('zonal')),
             ('SUPERVISOR', imagenes.get('supervisor')),
         ]
-
-        for nombre_tabla, ruta_img in archivos:
+        for nombre_tabla, ruta_img in archivos_principales:
             if not ruta_img or not Path(ruta_img).exists():
                 _logger.warning(f"[WARN] Imagen no encontrada: {ruta_img}")
                 continue
-
             caption = f"{msg_titulo} - {nombre_tabla}"
-            _logger.info(f"[SEND] Enviando {nombre_tabla} a {numero_destino}...")
-
-            resultado = wa.send_image(numero_destino, ruta_img, caption=caption)
-
-            if not resultado.get('success'):
-                _logger.error(f"[ERROR] Fallo enviando {nombre_tabla}: {resultado.get('error')}")
+            _logger.info(f"[SEND] {nombre_tabla}...")
+            r = wa.send_image(numero_destino, ruta_img, caption=caption)
+            if not r.get('success'):
+                _logger.error(f"[ERROR] Fallo {nombre_tabla}: {r.get('error')}")
                 return False
-
             _logger.info(f"[OK] {nombre_tabla} enviado")
-            time.sleep(random.uniform(3, 6))  # delay antibang entre imágenes
+            time.sleep(random.uniform(3, 6))
 
-        _logger.info(f"[OK] Corte {etiqueta_hora} enviado a {destino} ({numero_destino})")
+        # Tablas vendedor: una por supervisor
+        tablas_vendedor = imagenes.get('vendedor', [])
+        if tablas_vendedor:
+            _logger.info(f"[SEND] Enviando {len(tablas_vendedor)} tablas vendedor...")
+            for nombre_sup, ruta_img in tablas_vendedor:
+                if not ruta_img or not Path(ruta_img).exists():
+                    _logger.warning(f"[WARN] Imagen vendedor no encontrada: {ruta_img}")
+                    continue
+                caption = f"{msg_titulo} - {nombre_sup}"
+                _logger.info(f"[SEND] VENDEDOR {nombre_sup}...")
+                r = wa.send_image(numero_destino, ruta_img, caption=caption)
+                if not r.get('success'):
+                    _logger.error(f"[ERROR] Fallo VENDEDOR {nombre_sup}: {r.get('error')}")
+                    # No abortar — continuar con el siguiente supervisor
+                else:
+                    _logger.info(f"[OK] {nombre_sup} enviado")
+                time.sleep(random.uniform(3, 6))
+
+        _logger.info(f"[OK] Corte {etiqueta_hora} completo — enviado a {destino} ({numero_destino})")
         return True
 
     except Exception as e:
         _logger.error(f"[ERROR] Error enviando corte: {e}")
+        return False
+
+
+def enviar_alerta_tecnica(destino: str, hora: int, config: dict, motivo: str = "") -> bool:
+    """Envía mensaje de texto cuando no se pueden generar las capturas."""
+    etiqueta_hora = HORA_LBL.get(hora, f"{hora}H")
+    try:
+        destinos = config.get('cortes_horarios', {}).get('destinos', {})
+        numero_destino = destinos.get(destino)
+        if not numero_destino:
+            _logger.error(f"[ERROR] Destino '{destino}' no configurado")
+            return False
+
+        wa = WhatsAppClient()
+        msg = (
+            f"[AVISO TECNICO] Corte {etiqueta_hora}\n"
+            f"Se presento un problema tecnico al generar el reporte.\n"
+            f"La informacion sera enviada lo antes posible.\n"
+        )
+        if motivo:
+            msg += f"Detalle: {motivo[:120]}"
+
+        resultado = wa.send_message(numero_destino, msg)
+        if resultado.get('success'):
+            _logger.info(f"[OK] Alerta tecnica enviada a {destino}")
+            return True
+        else:
+            _logger.error(f"[ERROR] No se pudo enviar alerta: {resultado.get('error')}")
+            return False
+    except Exception as e:
+        _logger.error(f"[ERROR] Excepcion enviando alerta: {e}")
         return False
 
 
@@ -222,18 +323,20 @@ def main():
         _logger.error("[ERROR] Hora debe estar entre 8 y 18")
         return
 
-    # Buscar archivo Excel si no se especifica
+    config = cargar_config()
+
+    # Buscar archivo Excel del día actual (nombre fijo por fecha)
     if not args.archivo:
-        excels = sorted(BASE_DIR.glob("CORTE_VENTAS_*.xlsx"), reverse=True)
-        if not excels:
-            _logger.error("[ERROR] No se encontró CORTE_VENTAS_*.xlsx")
-            return
-        args.archivo = str(excels[0])
+        from datetime import date
+        nombre_hoy = f"CORTE_VENTAS_{date.today().strftime('%Y%m%d')}.xlsx"
+        args.archivo = str(BASE_DIR / nombre_hoy)
         _logger.info(f"[FILE] Usando: {args.archivo}")
 
-    # Validar que existe
     if not Path(args.archivo).exists():
         _logger.error(f"[ERROR] Archivo no encontrado: {args.archivo}")
+        if not args.solo_imagenes:
+            enviar_alerta_tecnica(args.destino, args.hora, config,
+                                  "Archivo de reporte no disponible")
         return
 
     # Capturar tablas
@@ -244,19 +347,20 @@ def main():
     imagenes = capturar_tablas(args.archivo, args.hora)
 
     if not imagenes['exito']:
-        _logger.error("[ERROR] Fallo en captura")
+        _logger.error("[ERROR] Fallo en captura — enviando alerta tecnica")
+        if not args.solo_imagenes:
+            enviar_alerta_tecnica(args.destino, args.hora, config,
+                                  "Error al capturar las tablas del reporte")
         return
 
     if args.solo_imagenes:
-        _logger.info("[OK] Imágenes capturadas (--solo-imagenes activo)")
+        _logger.info("[OK] Imagenes capturadas (--solo-imagenes activo)")
         return
 
     # Enviar a WhatsApp
     _logger.info(f"\n{'='*70}")
     _logger.info(f"[SEND] ENVIANDO A WHATSAPP")
     _logger.info(f"{'='*70}\n")
-
-    config = cargar_config()
 
     if enviar_corte_whatsapp(imagenes, args.destino, args.hora, config):
         _logger.info(f"\n[OK] CORTE {args.hora:02d}:00 COMPLETADO")

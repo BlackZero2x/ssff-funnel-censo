@@ -210,19 +210,22 @@ FUENTE = 'Aptos Narrow'
 
 # Colores resueltos (theme+tint → RGB)
 C_TIT_GEN  = '5B9BD5'   # título GENERAL (accent5)
-C_TIT_ZON  = '44546A'   # título ZONAL (dk2)
-C_TIT_SUP  = '006C50'   # título SUPERVISOR (rgb directo)
+C_TIT_ZON  = '1F3864'   # título ZONAL (azul marino)
+C_TIT_SUP  = '006C50'   # título SUPERVISOR (verde oscuro)
 C_CORTE    = 'FFFFCC'   # celdas Corte/hora
 C_HDR_GEN  = 'DEEBF7'   # header fila4 GENERAL
 C_DIF_GEN  = '9DC3E6'   # header dif GENERAL
-C_HDR_ZON  = 'DAE3F3'   # header fila4 ZONAL
-C_DIF_ZON  = '335693'   # header dif ZONAL (texto blanco)
-C_HDR_SUP  = 'A0FFE6'   # header fila4 SUPERVISOR
+C_HDR_ZON  = 'DAE3F3'   # header fila4 ZONAL (azul claro)
+C_DIF_ZON  = '1F3864'   # header dif ZONAL (azul marino, texto blanco)
+C_HDR_SUP  = 'CCFFCC'   # header fila4 SUPERVISOR (verde claro)
 C_DIF_SUP  = '006C50'   # header dif SUPERVISOR (texto blanco)
 C_DATA_GEN = 'F2F2F2'   # relleno datos GENERAL
 C_DATA_ZS  = 'D9D9D9'   # relleno datos ZONAL/SUPERVISOR
 C_BLANCO   = 'FFFFFF'
 C_NEGRO    = '000000'
+C_VEN_TIT  = '403151'   # título tabla VENDEDOR (THEME:7 tint=-0.5, morado oscuro)
+C_VEN_TOT  = '403151'   # TOTAL tabla VENDEDOR
+C_VEN_HDR  = 'DDD4E9'   # banda fecha VENDEDOR (THEME:7 tint=+0.8, lila claro)
 
 # Formato moneda soles (idéntico al EJEMPLO en columnas Diferencia)
 FMT_SOLES = '_-"S/"\\ * #,##0.00_-;\\-"S/"\\ * #,##0.00_-;_-"S/"\\ * "-"??_-;_-@_-'
@@ -485,12 +488,13 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             _set(ws, r, c_pct_avance, f'=IFERROR({sd_c}{r}/{cuota_c}{r},"-")',
                  font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
 
-            # Para SUPERVISOR: SOLO % en diferencias (sin columnas numérica)
-            # %Dif7 = (Pd-Ps7)/Ps7, %Dif14 = (Pd-Ps14)/Ps14
+            # AG = IFERROR((AD-AB)/AB,"-")  AH = IFERROR((AD-Z)/Z,"")
             s7_c, s14_c = L(c_s7), L(c_s14)
-            _set(ws, r, c_pct7, f'=({sd_c}{r}-{s7_c}{r})/{s7_c}{r}',
+            _set(ws, r, c_pct7,
+                 f'=IFERROR(({sd_c}{r}-{s7_c}{r})/{s7_c}{r},"-")',
                  font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
-            _set(ws, r, c_pct14, f'=({sd_c}{r}-{s14_c}{r})/{s14_c}{r}',
+            _set(ws, r, c_pct14,
+                 f'=IFERROR(({sd_c}{r}-{s14_c}{r})/{s14_c}{r},"")',
                  font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
         else:
             # Para ZONAL: Dif + % en ambas columnas
@@ -505,42 +509,92 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             _set(ws, r, c_pct14, f'=IFERROR({dif14_c}{r}/{s14_c}{r},0)', font=fnt(), fill=fill(color_fila_cat),
                  align=aln('right'), fmt=FMT_PCT)
 
-    # Iconos en %Dif (ambas tablas tienen iconos en las columnas de %)
     last_row = 6 + len(filas) - 1
-    ws.conditional_formatting.add(f'{L(c_pct7)}6:{L(c_pct7)}{last_row}', _icon_rule())
-    ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{last_row}', _icon_rule())
+    r_tot = last_row + 1
 
-    # APLICAR BORDES ESPECÍFICOS
+    # ── Fila TOTAL ─────────────────────────────────────────────────────────────
+    _set(ws, r_tot, c_lbl, 'TOTAL',
+         font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+         align=aln('left'), border=brd_all())
+    for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
+        col_l = L(cc)
+        _set(ws, r_tot, cc, f'=SUM({col_l}6:{col_l}{last_row})',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_NUM_SIN_DEC, border=brd_all())
     if es_supervisor:
-        # SUPERVISOR
+        # Cuota total
+        cuota_c = L(c_cuota)
+        _set(ws, r_tot, c_cuota, f'=SUM({cuota_c}6:{cuota_c}{last_row})',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_NUM_SIN_DEC, border=brd_all())
+        # %Avance total
+        sd_c = L(c_sd)
+        _set(ws, r_tot, c_pct_avance,
+             f'=IFERROR({sd_c}{r_tot}/{cuota_c}{r_tot},"-")',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+        # %Dif7 y %Dif14 totales
+        s7_c, s14_c = L(c_s7), L(c_s14)
+        _set(ws, r_tot, c_pct7,
+             f'=IFERROR(({sd_c}{r_tot}-{s7_c}{r_tot})/{s7_c}{r_tot},"-")',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+        _set(ws, r_tot, c_pct14,
+             f'=IFERROR(({sd_c}{r_tot}-{s14_c}{r_tot})/{s14_c}{r_tot},"-")',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+    else:
+        # ZONAL: Dif7 + %Dif7 y Dif14 + %Dif14 totales
+        sd_c, s7_c, s14_c = L(c_sd), L(c_s7), L(c_s14)
+        dif7_c, dif14_c = L(c_dif7), L(c_dif14)
+        _set(ws, r_tot, c_dif7, f'=SUM({dif7_c}6:{dif7_c}{last_row})',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_DIF_NUM, border=brd_all())
+        _set(ws, r_tot, c_pct7,
+             f'=IFERROR({dif7_c}{r_tot}/{s7_c}{r_tot},0)',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+        _set(ws, r_tot, c_dif14, f'=SUM({dif14_c}6:{dif14_c}{last_row})',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_DIF_NUM, border=brd_all())
+        _set(ws, r_tot, c_pct14,
+             f'=IFERROR({dif14_c}{r_tot}/{s14_c}{r_tot},0)',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+
+    # Iconos en %Dif — incluye la fila TOTAL
+    ws.conditional_formatting.add(f'{L(c_pct7)}6:{L(c_pct7)}{r_tot}', _icon_rule())
+    ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{r_tot}', _icon_rule())
+
+    # APLICAR BORDES ESPECÍFICOS (r_tot incluye la fila TOTAL)
+    if es_supervisor:
         # 1) X5:AH5 — outside border en fila encabezado
         for cc in range(c_lbl, c_pct14 + 1):
             _apply_border(ws.cell(5, cc), left=True, right=True, top=True, bottom=True)
-        # 2) X6:X{last_row} — left border en columna etiqueta (filas de datos)
-        for rr in range(6, last_row + 1):
+        # 2) left border en columna etiqueta (filas de datos + TOTAL)
+        for rr in range(6, r_tot + 1):
             _apply_border(ws.cell(rr, c_lbl), left=True)
-        # 3) Right borders en columnas de cierre de par, filas 4..last_row
-        for rr in range(4, last_row + 1):
-            _apply_border(ws.cell(rr, c_s14),       right=True)  # Z
-            _apply_border(ws.cell(rr, c_s7),        right=True)  # AB
-            _apply_border(ws.cell(rr, c_sd),        right=True)  # AD
-            _apply_border(ws.cell(rr, c_pct_avance),right=True)  # AF
-            _apply_border(ws.cell(rr, c_pct14),     right=True)  # AH
-        # 4) X3:X{last_row} — right border en columna label filas 3..last_row
-        for rr in range(3, last_row + 1):
+        # 3) Right borders en columnas de cierre de par, filas 4..r_tot
+        for rr in range(4, r_tot + 1):
+            _apply_border(ws.cell(rr, c_s14),        right=True)
+            _apply_border(ws.cell(rr, c_s7),         right=True)
+            _apply_border(ws.cell(rr, c_sd),         right=True)
+            _apply_border(ws.cell(rr, c_pct_avance), right=True)
+            _apply_border(ws.cell(rr, c_pct14),      right=True)
+        # 4) right border en columna label filas 4..r_tot (X3 sin borde)
+        for rr in range(4, r_tot + 1):
             _apply_border(ws.cell(rr, c_lbl), right=True)
     else:
-        # ZONAL
         # 1) K5:U5 — outside border en fila encabezado
         for cc in range(c_lbl, c_pct14 + 1):
             _apply_border(ws.cell(5, cc), left=True, right=True, top=True, bottom=True)
-        # 2) K6:K{last_row} — left border en columna etiqueta (filas de datos)
-        for rr in range(6, last_row + 1):
+        # 2) left border en columna etiqueta (filas de datos + TOTAL)
+        for rr in range(6, r_tot + 1):
             _apply_border(ws.cell(rr, c_lbl), left=True)
-        # 3) Right borders en columnas de cierre de par, filas 4..last_row
+        # 3) Right borders en columnas de cierre de par, filas 4..r_tot
         right_border_cols = [c_lbl, c_s14, c_s7, c_sd, c_pct7, c_pct14]
         for cc in right_border_cols:
-            for rr in range(4, last_row + 1):
+            for rr in range(4, r_tot + 1):
                 _apply_border(ws.cell(rr, cc), right=True)
 
     # Anchos
@@ -559,9 +613,238 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
             ws.column_dimensions[L(cc)].width = 9.71
         ws.column_dimensions[L(c_dif7)].width = 14.0
-        ws.column_dimensions[L(c_pct7)].width = 7.71
+        ws.column_dimensions[L(c_pct7)].width = 9.0
         ws.column_dimensions[L(c_dif14)].width = 14.0
-        ws.column_dimensions[L(c_pct14)].width = 7.71
+        ws.column_dimensions[L(c_pct14)].width = 9.0
+
+
+# ── HOJA VENDEDOR ───────────────────────────────────────────────────────────────
+
+def enriquecer_con_vendedor(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrega columna 'vendedor' y 'supervisor_rutas' haciendo join con TABLAS_RUTAS."""
+    df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df_rutas = df_rutas[['RUTA', 'VENDEDOR', 'SUPERVISOR']].copy()
+    df_rutas.columns = ['ruta', 'vendedor', 'supervisor_rutas']
+    df = df.merge(df_rutas, on='ruta', how='left')
+    df['vendedor'] = df['vendedor'].fillna('SIN ASIGNAR')
+    df['supervisor_rutas'] = df['supervisor_rutas'].fillna(df['supervisor'])
+    return df
+
+
+def cargar_cuota_vendedor() -> dict:
+    """{RUTA: cuota_dia} desde CuotaJunioV2.xlsx."""
+    df_c = pd.read_excel(CUOTA_PATH, dtype={'RUTA': str})
+    return df_c.set_index('RUTA')['CUOTA_DIA'].to_dict()
+
+
+def agregar_por_sup_vendedor(df_d14, df_d7, df_d):
+    """Agrega por (supervisor_rutas, vendedor) para D-14, D-7 y D.
+
+    Retorna: {supervisor: {vendedor: {'d14':(ped,sol),'d7':..,'d':..}}}
+    """
+    resultado = {}
+    for etiq, df in [('d14', df_d14), ('d7', df_d7), ('d', df_d)]:
+        if df is None or df.empty:
+            continue
+        grp = (df.groupby(['supervisor_rutas', 'vendedor'])
+                 .agg(pedidos=('monto', 'count'), soles=('monto', 'sum'))
+                 .reset_index())
+        for _, row in grp.iterrows():
+            sup  = row['supervisor_rutas']
+            vend = row['vendedor']
+            resultado.setdefault(sup, {}).setdefault(
+                vend, {'d14': (0, 0.0), 'd7': (0, 0.0), 'd': (0, 0.0)})
+            resultado[sup][vend][etiq] = (int(row['pedidos']), float(row['soles']))
+    return resultado
+
+
+def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
+                           ruta_por_vendedor, fechas, nombre_dia, hora_lbl):
+    """Una hoja con tablas de vendedores, una por supervisor, separadas por 4 filas."""
+    ws_v.sheet_view.showGridLines = False
+    L = get_column_letter
+
+    # Columnas fijas (A..K)
+    COL_LBL  = 1   # A  Vendedor / RUTA
+    COL_P14, COL_S14 = 2, 3   # B C
+    COL_P7,  COL_S7  = 4, 5   # D E
+    COL_PD,  COL_SD  = 6, 7   # F G
+    COL_CUO  = 8              # H
+    COL_PCT  = 9              # I  %Avance
+    COL_DIF7 = 10             # J  [D-7] vs [D]
+    COL_DIF14= 11             # K  [D-14] vs [D]
+
+    # Anchos de columna (una sola vez, aplican a toda la hoja)
+    ws_v.column_dimensions[L(COL_LBL)].width   = 27.5
+    ws_v.column_dimensions[L(COL_P14)].width   = 10.0
+    ws_v.column_dimensions[L(COL_S14)].width   = 10.0
+    ws_v.column_dimensions[L(COL_P7)].width    = 10.0
+    ws_v.column_dimensions[L(COL_S7)].width    = 10.0
+    ws_v.column_dimensions[L(COL_PD)].width    = 8.0
+    ws_v.column_dimensions[L(COL_SD)].width    = 10.0
+    ws_v.column_dimensions[L(COL_CUO)].width   = 11.0
+    ws_v.column_dimensions[L(COL_PCT)].width   = 9.0
+    ws_v.column_dimensions[L(COL_DIF7)].width  = 14.0
+    ws_v.column_dimensions[L(COL_DIF14)].width = 14.0
+
+    supervisores = sorted(datos_sup_vend.keys())
+    fila_inicio = 1   # fila donde empieza la primera tabla
+
+    for sup in supervisores:
+        datos_sup = datos_sup_vend.get(sup, {})
+        vendedores = sorted(datos_sup.keys())
+        n_vend = len(vendedores)
+
+        r0 = fila_inicio           # fila 1: título
+        r3 = r0 + 2                # fila 3: bandas de fecha
+        r4 = r0 + 3                # fila 4: encabezados
+        r_data_ini = r0 + 4        # fila 5: primer vendedor
+        r_data_fin = r_data_ini + n_vend - 1
+        r_tot = r_data_fin + 1
+
+        # ── Fila 1: título supervisor + Corte/hora
+        for cc in range(COL_LBL, COL_DIF7):  # A..I → color supervisor
+            _set(ws_v, r0, cc,
+                 sup if cc == COL_LBL else None,
+                 font=fnt(bold=True, italic=True, size=13, color=C_BLANCO),
+                 fill=fill(C_VEN_TIT),
+                 align=aln('left') if cc == COL_LBL else aln())
+        # Corte en J y K
+        _set(ws_v, r0, COL_DIF7,  'Corte',
+             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
+        _set(ws_v, r0, COL_DIF14, hora_lbl,
+             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
+
+        # ── Fila 2: vacía (separación visual)
+        # (sin contenido)
+
+        # ── Fila 3: bandas de fecha (merge de pares)
+        for (cc, txt) in [
+            (COL_P14, f'{nombre_dia} ({fechas["d14"]}) [D-14]'),
+            (COL_P7,  f'{nombre_dia} ({fechas["d7"]}) [D-7]'),
+            (COL_PD,  f'{nombre_dia} ({fechas["d"]}) [D]'),
+        ]:
+            ws_v.merge_cells(start_row=r3, start_column=cc, end_row=r3, end_column=cc+1)
+            _set(ws_v, r3, cc, txt,
+                 font=fnt(italic=True, size=10),
+                 fill=fill(C_VEN_HDR), align=aln())
+        # "Seguimiento del dia" — merge H3:I3
+        ws_v.merge_cells(start_row=r3, start_column=COL_CUO, end_row=r3, end_column=COL_PCT)
+        _set(ws_v, r3, COL_CUO, 'Seguimiento del dia',
+             font=fnt(bold=True, italic=True, size=10, color=C_VEN_TIT),
+             fill=fill(C_BLANCO), align=aln())
+        # "% Diferencia" — merge J3:K3
+        ws_v.merge_cells(start_row=r3, start_column=COL_DIF7, end_row=r3, end_column=COL_DIF14)
+        _set(ws_v, r3, COL_DIF7, '% Diferencia',
+             font=fnt(bold=True, italic=True, size=10, color=C_VEN_TIT),
+             fill=fill(C_BLANCO), align=aln())
+
+        # ── Fila 4: encabezados
+        headers4 = [
+            (COL_LBL,   'Vendedor / RUTA'),
+            (COL_P14,   'Pedidos'), (COL_S14, 'Soles'),
+            (COL_P7,    'Pedidos'), (COL_S7,  'Soles'),
+            (COL_PD,    'Pedidos'), (COL_SD,  'Soles'),
+            (COL_CUO,   'Cuota_Dia'), (COL_PCT, '%Avance'),
+            (COL_DIF7,  '[D-7] vs. [D]'), (COL_DIF14, '[D-14] vs. [D]'),
+        ]
+        for cc, txt in headers4:
+            _set(ws_v, r4, cc, txt,
+                 font=fnt(bold=True), align=aln(), border=brd_all())
+
+        # ── Filas de datos
+        for i, vend in enumerate(vendedores):
+            r = r_data_ini + i
+            es_par = (r % 2 == 0)
+            color_f = C_DATA_ZS if es_par else C_BLANCO
+
+            d = datos_sup.get(vend, {'d14': (0, 0.0), 'd7': (0, 0.0), 'd': (0, 0.0)})
+            p14, s14 = d['d14']
+            p7,  s7  = d['d7']
+            pd_, sd  = d['d']
+
+            # Concatenar NOMBRE - RUTA (todas las rutas del vendedor para este sup)
+            rutas = ruta_por_vendedor.get(vend, [])
+            ruta_lbl = rutas[0] if len(rutas) == 1 else ('/'.join(rutas) if rutas else '')
+            celda_lbl = f'{vend} - {ruta_lbl}' if ruta_lbl else vend
+
+            _set(ws_v, r, COL_LBL, celda_lbl,
+                 font=fnt(), fill=fill(color_f), align=aln('left'),
+                 border=brd(left=True, right=True))
+
+            for cc, val, fmt in [
+                (COL_P14, p14,         'General'),
+                (COL_S14, round(s14,2), FMT_NUM_SIN_DEC),
+                (COL_P7,  p7,          'General'),
+                (COL_S7,  round(s7,2),  FMT_NUM_SIN_DEC),
+                (COL_PD,  pd_,         'General'),
+                (COL_SD,  round(sd,2),  FMT_NUM_SIN_DEC),
+            ]:
+                _set(ws_v, r, cc, val, font=fnt(), fill=fill(color_f),
+                     align=aln(), fmt=fmt)
+
+            # Cuota_Dia (suma de cuotas de todas las rutas del vendedor)
+            cuota_dia = sum(cuota_vend.get(rt, 0.0) for rt in rutas)
+            _set(ws_v, r, COL_CUO, round(cuota_dia, 2),
+                 font=fnt(), fill=fill(color_f), align=aln(), fmt=FMT_NUM_SIN_DEC)
+
+            # %Avance = G / H
+            sd_c, cuo_c = L(COL_SD), L(COL_CUO)
+            _set(ws_v, r, COL_PCT,
+                 f'=IFERROR({sd_c}{r}/{cuo_c}{r},"-")',
+                 font=fnt(), fill=fill(color_f), align=aln(), fmt=FMT_PCT,
+                 border=brd(right=True))
+
+            # %Dif [D-7] y [D-14]
+            s7_c, s14_c = L(COL_S7), L(COL_S14)
+            _set(ws_v, r, COL_DIF7,
+                 f'=IFERROR(({sd_c}{r}-{s7_c}{r})/{s7_c}{r},"-")',
+                 font=fnt(), fill=fill(color_f), align=aln(), fmt=FMT_PCT)
+            _set(ws_v, r, COL_DIF14,
+                 f'=IFERROR(({sd_c}{r}-{s14_c}{r})/{s14_c}{r},"-")',
+                 font=fnt(), fill=fill(color_f), align=aln(),fmt=FMT_PCT,
+                 border=brd(right=True))
+
+        # ── Fila TOTAL
+        _set(ws_v, r_tot, COL_LBL, 'TOTAL',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+             align=aln('left'), border=brd_all())
+        for cc in (COL_P14, COL_S14, COL_P7, COL_S7, COL_PD, COL_SD, COL_CUO):
+            col_l = L(cc)
+            _set(ws_v, r_tot, cc,
+                 f'=SUM({col_l}{r_data_ini}:{col_l}{r_data_fin})',
+                 font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+                 align=aln(), fmt=FMT_NUM_SIN_DEC, border=brd_all())
+        sd_c, cuo_c = L(COL_SD), L(COL_CUO)
+        _set(ws_v, r_tot, COL_PCT,
+             f'=IFERROR({sd_c}{r_tot}/{cuo_c}{r_tot},"-")',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+        s7_c, s14_c = L(COL_S7), L(COL_S14)
+        _set(ws_v, r_tot, COL_DIF7,
+             f'=IFERROR(({sd_c}{r_tot}-{s7_c}{r_tot})/{s7_c}{r_tot},"-")',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+        _set(ws_v, r_tot, COL_DIF14,
+             f'=IFERROR(({sd_c}{r_tot}-{s14_c}{r_tot})/{s14_c}{r_tot},"-")',
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+             align=aln(), fmt=FMT_PCT, border=brd_all())
+
+        # ── Bordes: left/right en columna A, right en C,E,G,I,K (por pares)
+        for rr in range(r3, r_tot + 1):
+            _apply_border(ws_v.cell(rr, COL_LBL), left=True, right=True)
+        for rr in range(r3, r_tot + 1):
+            for cc in (COL_S14, COL_S7, COL_SD, COL_PCT, COL_DIF14):
+                _apply_border(ws_v.cell(rr, cc), right=True)
+
+        # ── Formato condicional iconos en %Dif (datos + TOTAL)
+        ws_v.conditional_formatting.add(
+            f'{L(COL_DIF7)}{r_data_ini}:{L(COL_DIF7)}{r_tot}', _icon_rule())
+        ws_v.conditional_formatting.add(
+            f'{L(COL_DIF14)}{r_data_ini}:{L(COL_DIF14)}{r_tot}', _icon_rule())
+
+        # ── Avanzar al siguiente bloque: TOTAL + 4 filas vacías + 1 de inicio
+        fila_inicio = r_tot + 5
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -705,14 +988,25 @@ Ejemplos:
     print('\n[3] Agregando indicadores...')
     g_general = agregar_general(dfs['d14'], dfs['d7'], dfs['d'])
     g_zonal   = agregar_por_columna(dfs['d14'], dfs['d7'], dfs['d'], 'ZONA2', ZONAS_ORDEN)
-    # Orden de supervisores: unión de los 3 días, alfabético
     sup_orden = sorted(set(dfs['d14']['supervisor'].dropna()) |
                        set(dfs['d7']['supervisor'].dropna()) |
                        set(dfs['d']['supervisor'].dropna()))
     g_super = agregar_por_columna(dfs['d14'], dfs['d7'], dfs['d'], 'supervisor', sup_orden)
-
-    # Cargar cuota diaria por supervisor
     cuota_sup = cargar_cuota_supervisor()
+
+    # Datos para hoja VENDEDOR
+    print('   Enriqueciendo con vendedor...')
+    dfs_v = {}
+    for nm, df in [('d', dfs['d']), ('d7', dfs['d7']), ('d14', dfs['d14'])]:
+        dfs_v[nm] = enriquecer_con_vendedor(df)
+
+    datos_sup_vend = agregar_por_sup_vendedor(dfs_v['d14'], dfs_v['d7'], dfs_v['d'])
+    from generar_cuota_dia import calcular_cuota_dia_vendedor
+    cuota_vend = calcular_cuota_dia_vendedor()
+    # Mapa vendedor → lista de rutas (para cuota y etiqueta)
+    df_rutas_raw = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    ruta_por_vendedor = (df_rutas_raw.groupby('VENDEDOR')['RUTA']
+                         .apply(list).to_dict())
 
     print('\n[4] Generando Excel...')
     wb = Workbook()
@@ -728,7 +1022,12 @@ Ejemplos:
                        C_DIF_SUP, C_BLANCO, C_DATA_ZS, 'Supervisor', sup_orden,
                        g_super, fechas, nombre_dia, hora_lbl, len(sup_orden), cuota_sup=cuota_sup)
 
-    out = f'{OUT_DIR}/CORTE_VENTAS_{nombre_dia}_{hoy.strftime("%d_%m_%Y")}_{hora_lbl}.xlsx'
+    # Hoja VENDEDOR
+    ws_v = wb.create_sheet(title='VENDEDOR')
+    escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
+                           ruta_por_vendedor, fechas, nombre_dia, hora_lbl)
+
+    out = f'{OUT_DIR}/CORTE_VENTAS_{hoy.strftime("%Y%m%d")}.xlsx'
     wb.save(out)
     print(f'\n   Guardado: {out}')
 
