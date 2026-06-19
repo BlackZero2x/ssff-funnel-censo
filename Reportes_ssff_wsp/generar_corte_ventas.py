@@ -493,45 +493,48 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
     ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{last_row}', _icon_rule())
 
     # APLICAR BORDES ESPECÍFICOS
-    brd_outside = Border(left=Side(style='thin'), right=Side(style='thin'),
-                         top=Side(style='thin'), bottom=Side(style='thin'))
-    brd_left_only = Border(left=Side(style='thin'))
-    brd_right_only = Border(right=Side(style='thin'))
+    # Helpers para combinar lados sin pisar lados ya asignados
+    thin = Side(style='thin')
+    no   = Side(style=None)
+
+    def _apply_border(cell, left=False, right=False, top=False, bottom=False):
+        """Mezcla los lados solicitados con los ya existentes en la celda."""
+        b = cell.border
+        cell.border = Border(
+            left   = thin if left   else b.left,
+            right  = thin if right  else b.right,
+            top    = thin if top    else b.top,
+            bottom = thin if bottom else b.bottom,
+        )
 
     if es_supervisor:
-        # SUPERVISOR: X5:AH5 = outside border
+        # SUPERVISOR
+        # 1) X5:AH5 — outside border en fila encabezado
         for cc in range(c_lbl, c_pct14 + 1):
-            ws.cell(5, cc).border = brd_outside
-        # X5:X14 = left border (incluye desde fila 5 encabezado hasta last_row datos)
-        for rr in range(5, last_row + 1):
-            ws.cell(rr, c_lbl).border = brd_left_only
-        # Z4:Z14 = right border
+            _apply_border(ws.cell(5, cc), left=True, right=True, top=True, bottom=True)
+        # 2) X6:X{last_row} — left border en columna etiqueta (filas de datos)
+        for rr in range(6, last_row + 1):
+            _apply_border(ws.cell(rr, c_lbl), left=True)
+        # 3) Right borders en columnas de cierre de par, filas 4..last_row
         for rr in range(4, last_row + 1):
-            ws.cell(rr, c_s14).border = brd_right_only
-        # AB4:AB14 = right border
-        for rr in range(4, last_row + 1):
-            ws.cell(rr, c_s7).border = brd_right_only
-        # AD4:AD14 = right border
-        for rr in range(4, last_row + 1):
-            ws.cell(rr, c_sd).border = brd_right_only
-        # AF4:AF14 = right border
-        for rr in range(4, last_row + 1):
-            ws.cell(rr, c_pct_avance).border = brd_right_only
-        # AH4:AH14 = right border
-        for rr in range(4, last_row + 1):
-            ws.cell(rr, c_pct14).border = brd_right_only
+            _apply_border(ws.cell(rr, c_s14),       right=True)  # Z
+            _apply_border(ws.cell(rr, c_s7),        right=True)  # AB
+            _apply_border(ws.cell(rr, c_sd),        right=True)  # AD
+            _apply_border(ws.cell(rr, c_pct_avance),right=True)  # AF
+            _apply_border(ws.cell(rr, c_pct14),     right=True)  # AH
     else:
-        # ZONAL: K5:U5 = outside border
+        # ZONAL
+        # 1) K5:U5 — outside border en fila encabezado
         for cc in range(c_lbl, c_pct14 + 1):
-            ws.cell(5, cc).border = brd_outside
-        # K5:K13 = left border (desde fila 5 encabezado hasta last_row datos)
-        for rr in range(5, last_row + 1):
-            ws.cell(rr, c_lbl).border = brd_left_only
-        # K4:K13, M4:M13, O4:O14, Q4:Q14, S4:S14, U4:U14 = right border
+            _apply_border(ws.cell(5, cc), left=True, right=True, top=True, bottom=True)
+        # 2) K6:K{last_row} — left border en columna etiqueta (filas de datos)
+        for rr in range(6, last_row + 1):
+            _apply_border(ws.cell(rr, c_lbl), left=True)
+        # 3) Right borders en columnas de cierre de par, filas 4..last_row
         right_border_cols = [c_lbl, c_s14, c_s7, c_sd, c_pct7, c_pct14]
         for cc in right_border_cols:
             for rr in range(4, last_row + 1):
-                ws.cell(rr, cc).border = brd_right_only
+                _apply_border(ws.cell(rr, cc), right=True)
 
     # Anchos
     if es_supervisor:
