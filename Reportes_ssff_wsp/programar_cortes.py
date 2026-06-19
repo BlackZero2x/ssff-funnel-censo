@@ -52,23 +52,31 @@ def crear_tarea_windows(hora: int, etiqueta: str):
         etiqueta: Etiqueta amigable (8AM, 10AM, etc.)
 
     Flujo por hora:
-    - Todas las horas: regenera Excel con la hora exacta + captura imágenes
+    - Genera Excel con hora exacta
+    - Captura y envía a WhatsApp
     """
 
     # Nombre de la tarea
     nombre_tarea = f"SSFF_Corte_{etiqueta}"
 
-    # Todas las horas: regenerar Excel con la hora correcta + capturar
-    cmd = (f'uv run python "{SCRIPT_GENERAR}" --hora {hora} --solo-excel & '
-           f'uv run python "{SCRIPT_CAPTURAR}" --hora {hora} --destino canal')
+    # Ruta a python.exe del venv
+    python_exe = "C:\\proyectos\\.venv\\Scripts\\python.exe"
+
+    # Script wrapper que ejecuta ambos comandos
+    script_wrapper = SCRIPT_DIR / "ejecutar_corte_wrapper.py"
+
+    # Argumentos: paso la hora como parámetro
+    argumentos = f'"{script_wrapper}" --hora {hora}'
 
     # Crear tarea con SCHTASKS
+    # Repetir de lunes a sábado (MON,TUE,WED,THU,FRI,SAT)
     schtasks_cmd = [
         "schtasks",
         "/create",
         "/tn", nombre_tarea,
-        "/tr", cmd,
-        "/sc", "daily",
+        "/tr", f'"{python_exe}" {argumentos}',
+        "/sc", "weekly",
+        "/d", "MON,TUE,WED,THU,FRI,SAT",
         "/st", f"{hora:02d}:00:00",
         "/ru", "SYSTEM",
         "/f"  # Force (sobrescribe si existe)
@@ -76,7 +84,8 @@ def crear_tarea_windows(hora: int, etiqueta: str):
 
     print(f"\n📌 Creando tarea: {nombre_tarea}")
     print(f"   Hora: {etiqueta}")
-    print(f"   Comando: {cmd}")
+    print(f"   Programa: {python_exe}")
+    print(f"   Argumentos: {argumentos}")
 
     try:
         resultado = subprocess.run(
