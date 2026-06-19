@@ -286,6 +286,20 @@ def _icon_rule():
     )
 
 
+# ── HELPER DE BORDES (nivel módulo, usado por todas las tablas) ─────────────────
+
+def _apply_border(cell, left=False, right=False, top=False, bottom=False):
+    """Mezcla los lados solicitados con los ya existentes en la celda."""
+    _thin = Side(style='thin')
+    b = cell.border
+    cell.border = Border(
+        left   = _thin if left   else b.left,
+        right  = _thin if right  else b.right,
+        top    = _thin if top    else b.top,
+        bottom = _thin if bottom else b.bottom,
+    )
+
+
 # ── TABLA GENERAL (A2:H8) ───────────────────────────────────────────────────────
 
 def escribir_general(ws, datos, fechas, nombre_dia, hora_lbl):
@@ -338,6 +352,10 @@ def escribir_general(ws, datos, fechas, nombre_dia, hora_lbl):
              border=brd(left=True), fmt=fmt_dif)
         _set(ws, r, 8, f'=IFERROR(G{r}/B{r},0)', font=fnt(), fill=fill(color_fila),
              align=aln('right'), border=brd(right=True), fmt=FMT_PCT)
+
+    # C5:C8 — left+right border
+    for rr in range(5, 9):
+        _apply_border(ws.cell(rr, 3), left=True, right=True)
 
     # Iconos en %Dif (F6:F8 y H6:H8)
     ws.conditional_formatting.add('F6:F8', _icon_rule())
@@ -471,9 +489,9 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             # %Dif7 = (Pd-Ps7)/Ps7, %Dif14 = (Pd-Ps14)/Ps14
             s7_c, s14_c = L(c_s7), L(c_s14)
             _set(ws, r, c_pct7, f'=({sd_c}{r}-{s7_c}{r})/{s7_c}{r}',
-                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT)
+                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
             _set(ws, r, c_pct14, f'=({sd_c}{r}-{s14_c}{r})/{s14_c}{r}',
-                 font=fnt(), fill=fill(color_fila_cat), align=aln('right'), fmt=FMT_PCT)
+                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
         else:
             # Para ZONAL: Dif + % en ambas columnas
             sd_c, s7_c, s14_c = L(c_sd), L(c_s7), L(c_s14)
@@ -493,20 +511,6 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
     ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{last_row}', _icon_rule())
 
     # APLICAR BORDES ESPECÍFICOS
-    # Helpers para combinar lados sin pisar lados ya asignados
-    thin = Side(style='thin')
-    no   = Side(style=None)
-
-    def _apply_border(cell, left=False, right=False, top=False, bottom=False):
-        """Mezcla los lados solicitados con los ya existentes en la celda."""
-        b = cell.border
-        cell.border = Border(
-            left   = thin if left   else b.left,
-            right  = thin if right  else b.right,
-            top    = thin if top    else b.top,
-            bottom = thin if bottom else b.bottom,
-        )
-
     if es_supervisor:
         # SUPERVISOR
         # 1) X5:AH5 — outside border en fila encabezado
@@ -522,6 +526,9 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             _apply_border(ws.cell(rr, c_sd),        right=True)  # AD
             _apply_border(ws.cell(rr, c_pct_avance),right=True)  # AF
             _apply_border(ws.cell(rr, c_pct14),     right=True)  # AH
+        # 4) X3:X{last_row} — right border en columna label filas 3..last_row
+        for rr in range(3, last_row + 1):
+            _apply_border(ws.cell(rr, c_lbl), right=True)
     else:
         # ZONAL
         # 1) K5:U5 — outside border en fila encabezado
@@ -542,8 +549,8 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         ws.column_dimensions[L(c_lbl)].width = 21.71
         for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
             ws.column_dimensions[L(cc)].width = 9.71
-        ws.column_dimensions[L(c_cuota)].width = 14.0
-        ws.column_dimensions[L(c_pct_avance)].width = 9.0     # cambio: 7.71 → 9.0
+        ws.column_dimensions[L(c_cuota)].width = 11.0
+        ws.column_dimensions[L(c_pct_avance)].width = 9.0
         ws.column_dimensions[L(c_pct7)].width = 14.0
         ws.column_dimensions[L(c_pct14)].width = 14.0
     else:
