@@ -1,0 +1,151 @@
+ Prompt — Generador de clusters Segmento y Coberturado
+
+  ---
+  Tengo un reporte de clientes en Excel (o DataFrame de pandas) con el siguiente esquema de columnas de entrada. Necesito que calcules dos campos de clustering: Coberturado y Segmento.
+
+  ---
+  Columnas de entrada requeridas
+
+  ┌─────────────┬─────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │   Columna   │    Tipo     │                                                         Descripción                                                         │
+  ├─────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Ene-26 S/   │ float / NaN │ Venta del cliente en enero 2026 en soles. NaN = no compró                                                                   │
+  ├─────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Feb-26 S/   │ float / NaN │ Venta en febrero 2026                                                                                                       │
+  ├─────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Mar-26 S/   │ float / NaN │ Venta en marzo 2026                                                                                                         │
+  ├─────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Abr-26 S/   │ float / NaN │ Venta en abril 2026                                                                                                         │
+  ├─────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Censo       │ string      │ 'SI' si el cliente fue incorporado desde estudio de mercado (sin historial comercial previo). 'No' si es cliente de cartera │
+  ├─────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Origen Lima │ string      │ Zona geográfica: 'Lima Este', 'Casco', o 'May SSSFF'                                                                        │
+  └─────────────┴─────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  ▎ Nota de adaptación: los nombres de las columnas de meses cambian cada mes. Siempre son los 4 meses más recientes disponibles en el reporte. Al adaptar, actualiza la lista MESES_HIST con los nombres exactos de esas columnas.
+
+  ---
+  Variables intermedias — calcular primero
+
+  meses_activos = count(columnas de meses donde valor > 0)   # ignora NaN, rango: 0–4
+  total_hist    = sum(columnas de meses, fill NaN con 0)
+  prom_mensual  = total_hist / meses_activos                  # NaN si meses_activos == 0
+
+  ---
+  Campo 1: Coberturado
+
+  Regla directa, sin excepciones:
+
+  meses_activos >= 1  →  'FOCO'
+  meses_activos == 0  →  'NO'
+
+  ---
+  Campo 2: Segmento
+
+  Árbol de decisión en dos ramas:
+
+  Rama A — cliente con historial (meses_activos >= 1):
+
+  Combina dos criterios:
+  - Frecuencia: meses_activos >= 3 = frecuente / meses_activos <= 2 = esporádico
+  - Ticket: prom_mensual >= 200 S/ = alto / prom_mensual < 200 S/ = bajo
+
+  frecuente + alto   →  'A - Activo frecuente alto'
+  frecuente + bajo   →  'B - Activo frecuente bajo'
+  esporádico + alto  →  'C - Activo esporadico alto'
+  esporádico + bajo  →  'D - Activo esporadico bajo'
+
+  Rama B — cliente sin historial (meses_activos == 0):
+
+  Censo == 'SI' + Origen Lima == 'Lima Este'  →  'E - Censo Lima Este'
+  Censo == 'SI' + Origen Lima == 'Casco'      →  'F - Censo Casco'
+  Censo == 'No'  (cualquier zona)             →  'G - Inactivo cartera'
+
+  ---
+  Implementación completa
+
+  import pandas as pd
+  import numpy as np
+
+  MESES_HIST        = ['Ene-26 S/', 'Feb-26 S/', 'Mar-26 S/', 'Abr-26 S/']
+  UMBRAL_FRECUENCIA = 3    # meses activos mínimos para considerar "frecuente"
+  UMBRAL_TICKET     = 200  # S/ promedio mensual mínimo para considerar "alto"
+
+  def calcular_clusters(df: pd.DataFrame) -> pd.DataFrame:
+      df = df.copy()
+
+      # variables intermedias
+      df['meses_activos'] = (df[MESES_HIST].fillna(0) > 0).sum(axis=1)
+      df['total_hist']    = df[MESES_HIST].fillna(0).sum(axis=1)
+      df['prom_mensual']  = df['total_hist'] / df['meses_activos'].replace(0, np.nan)
+
+      # Coberturado
+      df['Coberturado'] = df['meses_activos'].apply(lambda x: 'FOCO' if x >= 1 else 'NO')
+
+      # Segmento
+      def _seg(row):
+          ma = row['meses_activos']
+          p  = row['prom_mensual']
+
+          if ma >= 1:
+              frecuente = ma >= UMBRAL_FRECUENCIA
+              alto      = p  >= UMBRAL_TICKET
+              if frecuente and alto: return 'A - Activo frecuente alto'
+              if frecuente:          return 'B - Activo frecuente bajo'
+              if alto:               return 'C - Activo esporadico alto'
+              return                        'D - Activo esporadico bajo'
+
+          if row['Censo'] == 'SI':
+              return 'F - Censo Casco' if row['Origen Lima'] == 'Casco' else 'E - Censo Lima Este'
+          return 'G - Inactivo cartera'
+
+      df['Segmento'] = df.apply(_seg, axis=1)
+      return df
+
+  ---
+  Distribución de referencia (1.537 clientes, mayo 2026)
+
+  Úsala para validar que tu resultado es coherente. Si la distribución del nuevo reporte se aleja mucho de estos rangos, revisar que los nombres de columnas y el campo Censo estén correctamente mapeados.
+
+  ┌────────────────────────────┬────────────┬─────────────┬──────────────────────────────────────────┐
+  │          Segmento          │ % esperado │ Coberturado │                  Perfil                  │
+  ├────────────────────────────┼────────────┼─────────────┼──────────────────────────────────────────┤
+  │ A - Activo frecuente alto  │ ~7%        │ FOCO        │ Compra 3–4 meses, ticket > 200 S/        │
+  ├────────────────────────────┼────────────┼─────────────┼──────────────────────────────────────────┤
+  │ B - Activo frecuente bajo  │ ~12%       │ FOCO        │ Compra 3–4 meses, ticket < 200 S/        │
+  ├────────────────────────────┼────────────┼─────────────┼──────────────────────────────────────────┤
+  │ C - Activo esporádico alto │ ~4%        │ FOCO        │ Compra 1–2 meses, ticket > 200 S/        │
+  ├────────────────────────────┼────────────┼─────────────┼──────────────────────────────────────────┤
+  │ D - Activo esporádico bajo │ ~24%       │ FOCO        │ Compra 1–2 meses, ticket < 200 S/        │
+  ├────────────────────────────┼────────────┼─────────────┼──────────────────────────────────────────┤
+  │ E - Censo Lima Este        │ ~44%       │ NO          │ Nuevo de censo, zona Lima Este           │
+  ├────────────────────────────┼────────────┼─────────────┼──────────────────────────────────────────┤
+  │ F - Censo Casco            │ ~5%        │ NO          │ Nuevo de censo, zona Casco               │
+  ├────────────────────────────┼────────────┼─────────────┼──────────────────────────────────────────┤
+  │ G - Inactivo cartera       │ ~4%        │ NO          │ Cliente de cartera sin compras recientes │
+  └────────────────────────────┴────────────┴─────────────┴──────────────────────────────────────────┘
+
+  ---
+  Invariantes que siempre deben cumplirse
+
+  # Segmentos A–D → siempre Coberturado = FOCO
+  assert df[df['Segmento'].str.startswith(('A','B','C','D'))]['Coberturado'].eq('FOCO').all()
+
+  # Segmentos E–G → siempre Coberturado = NO
+  assert df[df['Segmento'].str.startswith(('E','F','G'))]['Coberturado'].eq('NO').all()
+
+  # meses_activos en rango válido
+  assert df['meses_activos'].between(0, len(MESES_HIST)).all()
+
+  ---
+  Parámetros ajustables
+
+  ┌───────────────────┬─────────────────┬────────────────────────────────────────────────────────────────┐
+  │     Parámetro     │  Valor actual   │                        Cuándo cambiarlo                        │
+  ├───────────────────┼─────────────────┼────────────────────────────────────────────────────────────────┤
+  │ MESES_HIST        │ últimos 4 meses │ Cada vez que cambia el período del reporte                     │
+  ├───────────────────┼─────────────────┼────────────────────────────────────────────────────────────────┤
+  │ UMBRAL_FRECUENCIA │ 3 meses         │ Si el período de análisis cambia (ej. 6 meses → subir a 4)     │
+  ├───────────────────┼─────────────────┼────────────────────────────────────────────────────────────────┤
+  │ UMBRAL_TICKET     │ 200 S/          │ Si el ticket promedio del negocio sube/baja significativamente │
+  └───────────────────┴─────────────────┴────────────────────────────────────────────────────────────────┘

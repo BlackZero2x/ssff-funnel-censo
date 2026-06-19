@@ -1,15 +1,35 @@
 """
-Genera CUOTAS_BBDD_202605.xlsx a partir de cuotas_ssff_may2026.xlsx (editado manualmente).
+Genera CUOTAS_BBDD_<periodo>.xlsx a partir de cuotas_ssff_<mes><anio>.xlsx (editado manualmente).
 Formato: periodo | ruta | tipo | linea | producto | soles | kilos | cobertura | temporal
 - kilos: solo PROCESADOS (EMBUTIDOS + CONGELADOS desde CUOTA_VOL_SSFF)
 - cobertura: todas las categorías desde CUOTA_COBERTURA
+Uso: python generar_bbdd.py --periodo 202606
 """
 import pandas as pd
 from openpyxl import Workbook
+import argparse
+from datetime import date
 
-PERIODO = 202605
-INPUT   = 'C:/proyectos/SSFF/cuotas_ssff_may2026.xlsx'
-OUTPUT  = 'C:/proyectos/SSFF/CUOTAS_BBDD_202605.xlsx'
+_parser = argparse.ArgumentParser(description='Genera BBDD de cuota mensual SSFF')
+_parser.add_argument('--periodo', type=str, default=None,
+                     help='Periodo de cuota en formato YYYYMM (ej: 202606)')
+_args = _parser.parse_args()
+
+if _args.periodo:
+    PERIODO = int(_args.periodo)
+else:
+    _hoy = date.today()
+    _sig = _hoy.month % 12 + 1
+    _anio = _hoy.year + (1 if _hoy.month == 12 else 0)
+    PERIODO = int(f'{_anio}{_sig:02d}')
+
+_MESES_ES = {1:'ene',2:'feb',3:'mar',4:'abr',5:'may',6:'jun',
+             7:'jul',8:'ago',9:'sep',10:'oct',11:'nov',12:'dic'}
+_mes_c  = PERIODO % 100
+_anio_c = PERIODO // 100
+INPUT  = f'C:/proyectos/SSFF/cuotas_ssff_{_MESES_ES[_mes_c]}{_anio_c}.xlsx'
+OUTPUT = f'C:/proyectos/SSFF/CUOTAS_BBDD_{PERIODO}.xlsx'
+print(f"Periodo: {PERIODO}  |  Input: {INPUT}")
 
 CATS_VALIDAS = [
     'ACCESORIOS','ANDINA','CERDO','COLGATE','DERMODIS','DULFINA',

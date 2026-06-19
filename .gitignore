@@ -46,6 +46,16 @@ env/
 Thumbs.db
 Desktop.ini
 
+# ── WhatsApp Server (Reportes_ssff_wsp) ───────────────
+Reportes_ssff_wsp/session_data/
+Reportes_ssff_wsp/logs/
+Reportes_ssff_wsp/.node-persist
+Reportes_ssff_wsp/.wwebjs_cache
+Reportes_ssff_wsp/node_modules/
+Reportes_ssff_wsp/__pycache__/
+Reportes_ssff_wsp/config.json      # Nunca subir config real con IDs
+Reportes_ssff_wsp/DIRECTORIO_MENCIONES.md  # Datos sensibles
+
 # ── Windows ────────────────────────────────────────────
 $RECYCLE.BIN/
 ehthumbs.db

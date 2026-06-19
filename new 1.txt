@@ -1,0 +1,52 @@
+vamos a crear otro proceso de funnel pero enfocado en la preventa y no coberturados del día,te explico primero la base y como deberan estar compuestas las columnas,
+luego basado esto se construirá las vistas del funnel, considerar el objetivo: Hacer un reporte de seguimiento claro y sencillo por cliente, accesible para el
+vendedor, supervisor, jefe de proyecto y gerente comercial, La info se repartirá por supervisor y se enviará por correo cada cierto intervalo de tiempo (por definir).
+
+Fuentes:
+1) tabla de efectividad por dia en SQL (mismos credenciales que ya tenemos) el SP es este: EXEC "eAuren"."dbo"."spPreventa_efectividad_dia"'20260514','4' --> en el primer argumento la fecha siempre debe ser hoy
+y en el segundo argumento es el dia de la semana, en este caso 4 = jueves y asi sucesivamente. Campo KEY: codCliente
+2) vtas_soles_resumen_2601-2604.csv contiene el resumen de ventas en soles por cliente y por mes para el historico y para el mes actual usa este query (usa las credenciales actuales): SELECT 
+     a.ccod_cli
+	,a.[mes]
+    ,SUM(a.[monto]) AS [total_monto]
+FROM [eAuren].[dbo].[base_com] a
+WHERE a.mes = '2605' and a.cstatus !='A' AND a.ctipo_vta='0003' and ccod_ruta!= '0000'
+GROUP BY
+     a.ccod_cli
+	,a.[mes]
+ORDER BY 
+	a.[mes] DESC
+	
+Campo KEY: ccod_cli
+3) Motivos de no preventa, query: SELECT *
+FROM dbo.viewMotivoNoPreVentaTM
+WHERE CAST(fecha AS DATE) = CAST(GETDATE() AS DATE);
+Campo KEY: codCliente
+En este campo, los campos extraer son: "estado" y "distancia"
+
+Como armarlo, te detallo cada campo como va al costado y de donde viene:
+Supervisor	fuente1:supervisor
+Ruta	fuente1:ruta
+Vendedor	fuente1:vendedor
+Día Visita	fuente1:diaPvta
+Código	fuente1:codCliente
+Cliente	fuente1:cliente
+Distrito_cliente	fuente1:distrito
+Censo	fuente1:censo
+Segmento	Segmento (lógica en prompt_cluster_segmento.txt --> LEER)
+Origen Lima	Origen Lima (consultar y combinar con TABLAS_RUTAS.xlsx, obtener campo "ZONA2" tomar como KEY el campo "Ruta")
+Ene-26 S/	fuente2: suma por mes
+Feb-26 S/	fuente2: suma por mes
+Mar-26 S/	fuente2: suma por mes
+Abr-26 S/	fuente2: suma por mes
+Venta Mayo S/	fuente2: suma por mes pero del query entregado
+Coberturado	"esta lógica:     meses_activos >= 1  →  'FOCO'
+  meses_activos == 0  →  'NO'"
+ESTADO_CLIENTE	"CON COMPRA"= si "MONTO COMPRA S/" >=1, "MOTIVO NO COMPRA"= si "MOTIVO NO COMPRA" es diferente a vacio/null, "SIN VISITA"= si "MONTO COMPRA S/"=0 y no tiene "MOTIVO NO COMPRA"
+MONTO COMPRA S/	fuente1:monto si no hay, colocar cero
+MOTIVO NO COMPRA	fuente3:campo "estado"
+DISTANCIA (km)	fuente3:campo "distancia"
+>150 METROS	= SI DISTANCIA (km) >=0.15 ENTONCES "SI" sino vacio/null
+
+con esto armamos toda la estructura base, luego de que generes el script y lo ejecutemos para darle una revisada pasaremos a los siguientes pasos de visualizaciones.
+Si tienes preguntas, hazlas ahora antes de proceder.

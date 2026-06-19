@@ -6,14 +6,19 @@ Programa ejecuciones automáticas de cortes horarios en Windows Task Scheduler.
 Ejecuta: python programar_cortes.py
 
 Crea tareas programadas para:
-  8 AM  → Corte 8AM
-  10 AM → Corte 10AM
-  12 PM → Corte 12PM
-  2 PM  → Corte 2PM
-  4 PM  → Corte 4PM
-  6 PM  → Corte 6PM
+  8 AM  → generar_corte_ventas (Excel) + capturar_cortes (imágenes WhatsApp)
+  9 AM  → capturar_cortes
+  10 AM → capturar_cortes
+  ... y así hasta 6 PM
 
-(Sin incluir 9AM, 11AM, 1PM, 3PM, 5PM para reducir volumen de envíos)
+Sincronización de recursos:
+- Múltiples proyectos (SSFF, MOVISTAR, etc.) pueden capturar screenshot al mismo
+  tiempo sin conflictos, gracias a mutex en C:\proyectos\locks\.
+- screenshot_safe.py maneja las exclusiones automáticamente.
+
+Flujo:
+  [generar_corte_ventas.py] → genera CORTE_VENTAS_*.xlsx con 3 tablas
+  [capturar_cortes.py] → captura tablas como PNG, envía a WhatsApp con antibang
 """
 
 import subprocess
@@ -23,14 +28,21 @@ from pathlib import Path
 # Directorio actual
 SCRIPT_DIR = Path(__file__).parent.absolute()
 SCRIPT_GENERAR = SCRIPT_DIR / "generar_corte_ventas.py"
+SCRIPT_CAPTURAR = SCRIPT_DIR / "capturar_cortes.py"
 
 # Horarios a programar (hora en formato 24h)
+# Cambiar aquí si deseas menos horarios (ej: [8, 10, 12, 14, 16, 18] para 6 horarios)
 HORARIOS = {
     8: "8AM",
+    9: "9AM",
     10: "10AM",
+    11: "11AM",
     12: "12PM",
+    13: "1PM",
     14: "2PM",
+    15: "3PM",
     16: "4PM",
+    17: "5PM",
     18: "6PM",
 }
 
@@ -39,15 +51,23 @@ def crear_tarea_windows(hora: int, etiqueta: str):
     Crea una tarea en Windows Task Scheduler.
 
     Args:
-        hora: Hora en formato 24h (8, 10, 12, 14, 16, 18)
+        hora: Hora en formato 24h (8-18)
         etiqueta: Etiqueta amigable (8AM, 10AM, etc.)
+
+    Flujo por hora:
+    - 8 AM (primera): Genera Excel (generar_corte_ventas.py) + captura imágenes
+    - 9-18 AM: Solo captura imágenes del Excel más reciente
     """
 
     # Nombre de la tarea
     nombre_tarea = f"SSFF_Corte_{etiqueta}"
 
-    # Comando a ejecutar
-    cmd = f'python "{SCRIPT_GENERAR}" --hora {hora}'
+    # Primera tarea (8 AM): genera Excel + captura
+    # Otras tareas: solo capturan del Excel más reciente
+    if hora == 8:
+        cmd = f'python "{SCRIPT_GENERAR}" --hora {hora} && python "{SCRIPT_CAPTURAR}" --hora {hora} --destino test'
+    else:
+        cmd = f'python "{SCRIPT_CAPTURAR}" --hora {hora} --destino test'
 
     # Crear tarea con SCHTASKS
     schtasks_cmd = [

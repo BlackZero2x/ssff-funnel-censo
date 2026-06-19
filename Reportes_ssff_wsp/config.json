@@ -41,6 +41,18 @@
     }
   },
 
+  "cortes_horarios": {
+    "destinos": {
+      "test": "51975155264@c.us",
+      "canal": "120363278118591818@g.us",
+      "supervisores_f8": "",
+      "supervisores_m0": "",
+      "jefe": "",
+      "gerente": ""
+    },
+    "horas": [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+  },
+
   "message_variants": {
     "reporte_generado": [
       "📊 Cuotas de ventas SSFF ({mes}) generadas exitosamente. Ver adjunto.",

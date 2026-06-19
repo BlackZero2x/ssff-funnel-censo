@@ -1,0 +1,20 @@
+{
+  "name": "reportes_ssff_whatsapp",
+  "version": "1.0.0",
+  "description": "Servidor WhatsApp para notificaciones automáticas de reportes SSFF",
+  "main": "wa_server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "whatsapp-web.js": "^1.26.0",
+    "qrcode-terminal": "^0.12.0",
+    "cors": "^2.8.6",
+    "express": "^4.22.1"
+  },
+  "devDependencies": {}
+}

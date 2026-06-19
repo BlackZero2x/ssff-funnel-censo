@@ -164,50 +164,13 @@ def _autenticar_gmail():
 
 # ── Captura de rangos Excel ────────────────────────────────────────────────────
 def _capturar_rango(app, wb, sheet, rango, cap_path):
-    """Exporta un rango como PNG. Igual metodología que jefes_process.py de Movistar:
-    intenta CopyPicture+clipboard primero; fallback a Chart export."""
-    import win32gui
-    from PIL import ImageGrab
-
-    def _get_hwnd():
-        hwnds = []
-        win32gui.EnumWindows(
-            lambda h, _: hwnds.append(h) if 'Microsoft Excel' in (win32gui.GetWindowText(h) or '') else None,
-            None
-        )
-        return hwnds[0] if hwnds else None
-
-    # Intento 1: CopyPicture → clipboard
-    for intento in range(3):
-        try:
-            hwnd = _get_hwnd()
-            if hwnd:
-                try:
-                    win32gui.ShowWindow(hwnd, 9)
-                    win32gui.SetForegroundWindow(hwnd)
-                except Exception:
-                    pass
-            xl_rng = sheet.range(rango)
-            xl_rng.api.Select()
-            app.api.ActiveWindow.ScrollIntoView(
-                xl_rng.left, xl_rng.top, xl_rng.width, xl_rng.height
-            )
-            time.sleep(1 + intento)
-            xl_rng.api.CopyPicture(Appearance=1, Format=2)
-            time.sleep(2)
-            img = ImageGrab.grabclipboard()
-            if img:
-                img.save(cap_path, 'PNG')
-                logging.info(f'   Captura OK (CopyPicture): {os.path.basename(cap_path)}')
-                return True
-        except Exception as e:
-            logging.warning(f'   CopyPicture intento {intento+1} fallido: {e}')
-            time.sleep(2)
-
-    # Intento 2: Chart export (funciona sin escritorio interactivo)
-    logging.info(f'   Usando Chart export para {rango}...')
+    """
+    Exporta un rango como PNG usando Chart export.
+    Este método no requiere clipboard ni ventana en primer plano, por lo que
+    funciona tanto en sesión interactiva como en el Programador de Tareas.
+    """
     try:
-        xl_rng = sheet.range(rango)
+        xl_rng    = sheet.range(rango)
         xl_rng.api.Copy()
         time.sleep(1)
         charts    = sheet.api.ChartObjects()
@@ -219,25 +182,59 @@ def _capturar_rango(app, wb, sheet, rango, cap_path):
         chart_obj.Delete()
         time.sleep(0.5)
         if os.path.exists(cap_path):
-            logging.info(f'   Captura OK (Chart export): {os.path.basename(cap_path)}')
+            logging.info(f'   Captura OK: {os.path.basename(cap_path)}')
             return True
+        logging.warning(f'   Chart export no generó archivo para {rango}')
     except Exception as e:
-        logging.error(f'   Chart export fallido para {rango}: {e}')
+        logging.error(f'   Error al capturar {rango}: {e}')
+    return False
 
+
+def _esperar_archivo_libre(ruta, timeout=60):
+    """
+    Espera hasta que ningún proceso tenga el archivo abierto (máx timeout seg).
+    Usa msvcrt.locking para detectar bloqueos exclusivos igual que Excel COM.
+    """
+    import msvcrt
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            fd = os.open(ruta, os.O_RDWR | os.O_BINARY)
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                return True
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+        time.sleep(3)
     return False
 
 
 def _capturar_imagenes():
-    """Abre el Excel con xlwings, captura los rangos definidos y cierra."""
+    """
+    Abre el Excel con xlwings y captura los rangos definidos como PNG.
+    Usa visible=False para funcionar en sesiones sin escritorio interactivo
+    (Programador de Tareas de Windows). Solo usa Chart export, que no requiere
+    clipboard ni ventana en primer plano.
+    """
     import xlwings as xw
 
     temp_dir = os.path.join(DIR_SSFF, 'temp_capturas')
     os.makedirs(temp_dir, exist_ok=True)
 
+    # Esperar a que generar_funnel_censo.py libere el archivo
+    if not _esperar_archivo_libre(ARCHIVO_PRINCIPAL, timeout=30):
+        logging.error('El archivo principal sigue bloqueado después de 30s — se omite captura.')
+        return []
+
     capturas = []  # lista de (nombre_archivo, ruta_png)
     app = None
     try:
-        app = xw.App(visible=True, add_book=False)
+        app = xw.App(visible=False, add_book=False)
         app.display_alerts = False
         wb  = app.books.open(os.path.normpath(ARCHIVO_PRINCIPAL),
                              update_links=False, read_only=True)
@@ -377,6 +374,8 @@ def main():
             logging.error(resultado.stderr)
             sys.exit(1)
         logging.info('[1] Archivos generados correctamente.')
+        # Pequeña pausa para que openpyxl libere el handle antes de que xlwings intente abrir el archivo
+        time.sleep(5)
 
     # [2] Capturar imágenes de rangos Excel
     logging.info('[2] Capturando imágenes de FUNNEL_CENSO...')

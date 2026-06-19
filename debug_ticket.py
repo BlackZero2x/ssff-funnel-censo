@@ -1,89 +1,41 @@
-"""
-Genera el reporte Excel de seguimiento de clientes censo SSFF.
-Produce el libro principal (funnel_censo_SSFF.xlsx) y un libro
-por supervisor con las mismas hojas filtradas.
-
-Uso: python generar_funnel_censo.py
-Salida: C:/proyectos/SSFF/funnel_censo_SSFF.xlsx
-        C:/proyectos/SSFF/funnel_censo_<supervisor>.xlsx  (uno por supervisor)
-"""
-# ── Librería estándar ──────────────────────────────────────────────────────────
 import datetime
 import os
-import sys
-import warnings
-
-# ── Terceros ───────────────────────────────────────────────────────────────────
 import pandas as pd
 import numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-
+import warnings
 warnings.filterwarnings('ignore')
 
 # Leer .env del proyecto
 def _leer_env(path='.env'):
-    """Lee un archivo .env y devuelve un dict con las variables."""
     env = {}
     if os.path.exists(path):
-        with open(path, encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    k, v = line.split('=', 1)
-                    env[k.strip()] = v.strip()
+        for line in open(path, encoding='utf-8'):
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                k, v = line.split('=', 1)
+                env[k.strip()] = v.strip()
     return env
 
 _env = _leer_env('C:/proyectos/SSFF/.env')
-
-def _env_requerida(clave):
-    """Lee una variable obligatoria del .env; aborta con mensaje claro si no existe."""
-    valor = _env.get(clave)
-    if not valor:
-        raise EnvironmentError(f"Variable '{clave}' no encontrada en .env — configúrala antes de ejecutar.")
-    return valor
-
-SQL_SERVER   = _env_requerida('SQL_SERVER')
-SQL_DATABASE = _env_requerida('SQL_DATABASE')
-SQL_USER     = _env_requerida('SQL_USER')
-SQL_PASSWORD = _env_requerida('SQL_PASSWORD')
+SQL_SERVER   = _env.get('SQL_SERVER',   'AUREN22\\AUREN')
+SQL_DATABASE = _env.get('SQL_DATABASE', 'eAuren')
+SQL_USER     = _env.get('SQL_USER',     'eauren')
+SQL_PASSWORD = _env.get('SQL_PASSWORD', 'eauren')
 
 # ════════════════════════════════════════════════════════════════════════
 # PARAMETROS  <- ajustar rutas si es necesario
 # ════════════════════════════════════════════════════════════════════════
-# DETECCIÓN AUTOMÁTICA DE MES EN CURSO E HISTÓRICO
-# ════════════════════════════════════════════════════════════════════════
-_ahora = datetime.datetime.now()
-HOY    = _ahora.date() if _ahora.hour >= 10 else _ahora.date() - datetime.timedelta(days=1)
+HIST_PATH      = 'C:/proyectos/SSFF/export_data_ssff_2511-2604_fecha.csv'
+MAEST_PATH     = 'C:/proyectos/SSFF/maestro_clientes_SSFF.xlsx'
+TABLAS_PATH    = 'C:/proyectos/SSFF/TABLAS_RUTAS.xlsx'
+OUTPUT         = 'C:/proyectos/SSFF/funnel_censo_SSFF.xlsx'
+ENCUESTAS_PATH = 'C:/proyectos/SSFF/encuestas_mayo2026.csv'   # <- actualizar cada mes
 
-# Mes en curso en formato YYMM (ej: 2606 para junio 2026)
-_MES_ACTUAL_STR = HOY.strftime('%y%m')   # '2606'
-_MES_ACTUAL_INT = int(_MES_ACTUAL_STR)   # 2606
-
-# Buscar el CSV histórico más reciente disponible en disco.
-# Patrón: export_data_ssff_NNNN-NNNN_fecha.csv  — tomar el de mayor mes final.
-import glob as _glob
-_BASE_DIR = 'C:/proyectos/SSFF'
-_csv_candidatos = sorted(
-    _glob.glob(f'{_BASE_DIR}/export_data_ssff_????-????_fecha.csv'),
-    reverse=True   # lexicográfico desc → el de mayor mes al frente
-)
-if not _csv_candidatos:
-    raise FileNotFoundError(
-        f"No se encontró ningún export_data_ssff_NNNN-NNNN_fecha.csv en {_BASE_DIR}")
-HIST_PATH = _csv_candidatos[0]
-print(f"   Histórico detectado: {os.path.basename(HIST_PATH)}")
-
-MAEST_PATH     = f'{_BASE_DIR}/maestro_clientes_SSFF.xlsx'   # fallback si falla SQL
-TABLAS_PATH    = f'{_BASE_DIR}/TABLAS_RUTAS.xlsx'
-OUTPUT         = f'{_BASE_DIR}/funnel_censo_SSFF.xlsx'
-ENCUESTAS_PATH = f'{_BASE_DIR}/encuestas_{HOY.strftime("%B%Y").lower()}.csv'   # fallback MySQL
-MYSQL_DSN      = 'linux_auditorias_recargas'
-MYSQL_TABLA    = 'auditorias_recargas.encuesta166_sf_gestion_y_validar'
-
-# Query para el mes en curso — se construye dinámicamente
-QUERY_MAYO = f"""
+# Query SQL para mayo (mes en curso) -- se ejecuta en cada corrida
+QUERY_MAYO = """
 SELECT
      a.ccod_cli
     ,a.[mes]
@@ -97,7 +49,7 @@ SELECT
 FROM [eAuren].[dbo].[base_com] a
 LEFT JOIN [comercial_productos] b
     ON a.[codProd] = b.[codProd]
-WHERE a.mes = '{_MES_ACTUAL_STR}'
+WHERE a.mes = '2605'
   AND a.cstatus  != 'A'
   AND a.ctipo_vta = '0003'
   AND ccod_ruta  != '0000'
@@ -109,6 +61,8 @@ GROUP BY
     ,b.[categoria]
     ,a.fecha
 """
+
+HOY = datetime.date.today()
 
 CATS_VALIDAS = ['ACCESORIOS','ANDINA','CERDO','COLGATE','DERMODIS','DULFINA',
                 'HIGIENE Y CUIDADO','HOMEPRO PERU','HUEVO','KIMBERLY','LA CORONA',
@@ -192,23 +146,20 @@ def _leer_csv(path):
     df = df[df['categoria'].isin(CATS_VALIDAS)]
     return df
 
-def _conn_str_sql():
-    """Devuelve la cadena de conexión a SQL Server usando las variables del .env."""
-    return (
-        f"DRIVER={{SQL Server}};"
-        f"SERVER={SQL_SERVER};"
-        f"DATABASE={SQL_DATABASE};"
-        f"UID={SQL_USER};"
-        f"PWD={SQL_PASSWORD};"
-    )
-
 def _leer_sql_mayo():
-    """Trae ventas de mayo 2026 desde SQL Server. Devuelve (DataFrame, True) o (vacío, False)."""
     try:
         import pyodbc
-        with pyodbc.connect(_conn_str_sql(), timeout=30) as conn:
-            df = pd.read_sql(QUERY_MAYO, conn)
-        df.columns        = df.columns.str.strip()
+        conn_str = (
+            f"DRIVER={{SQL Server}};"
+            f"SERVER={SQL_SERVER};"
+            f"DATABASE={SQL_DATABASE};"
+            f"UID={SQL_USER};"
+            f"PWD={SQL_PASSWORD};"
+        )
+        conn = pyodbc.connect(conn_str, timeout=30)
+        df = pd.read_sql(QUERY_MAYO, conn)
+        conn.close()
+        df.columns = df.columns.str.strip()
         df['ccod_cli']    = pd.to_numeric(df['ccod_cli'],    errors='coerce').fillna(0).astype(int)
         df['mes']         = pd.to_numeric(df['mes'],         errors='coerce').fillna(0).astype(int)
         df['ccod_vend']   = pd.to_numeric(df['ccod_vend'],   errors='coerce').fillna(0).astype(int)
@@ -218,16 +169,16 @@ def _leer_sql_mayo():
         return df, True
     except Exception as e:
         print(f"   AVISO: No se pudo conectar a SQL Server -- {e}")
-        print(f"   Continuando solo con histórico (sin mes {_MES_ACTUAL_STR}).")
+        print(f"   Continuando solo con historico hasta 2604.")
         return pd.DataFrame(), False
 
 df_hist = _leer_csv(HIST_PATH)
 
-print(f"   Consultando SQL Server para mes {_MES_ACTUAL_STR}...")
+print("   Consultando SQL Server para mayo 2026...")
 df_mayo, tiene_mayo = _leer_sql_mayo()
 if tiene_mayo and len(df_mayo) > 0:
     df = pd.concat([df_hist, df_mayo], ignore_index=True)
-    print(f"   Mes {_MES_ACTUAL_STR} desde SQL: {len(df_mayo):,} filas")
+    print(f"   Mayo desde SQL: {len(df_mayo):,} filas")
 else:
     df = df_hist
     tiene_mayo = False
@@ -235,25 +186,10 @@ else:
 df = df.dropna(subset=['fecha'])
 print(f"   Total filas: {len(df):,}  |  Rango: {df['fecha'].min().date()} a {df['fecha'].max().date()}")
 
-# Maestro clientes — intenta SP en vivo, fallback al Excel
-def _leer_maestro_sql():
-    """Trae el maestro de clientes desde el SP de SQL Server. Devuelve None si falla."""
-    try:
-        import pyodbc
-        with pyodbc.connect(_conn_str_sql(), timeout=30) as conn:
-            df = pd.read_sql("EXEC [eAuren].[dbo].[sp_comxp_telfeAgenda]", conn)
-        print(f"   Maestro desde SQL Server: {len(df):,} filas")
-        return df
-    except Exception as e:
-        print(f"   Maestro SQL falló ({e}), usando Excel...")
-        return None
-
-lc_raw = _leer_maestro_sql()
-if lc_raw is None:
-    lc_raw = pd.read_excel(MAEST_PATH, sheet_name='lista_clientes')
+# Maestro clientes
+lc_raw = pd.read_excel(MAEST_PATH, sheet_name='lista_clientes')
 lc_raw['codigo'] = pd.to_numeric(lc_raw['codigo'], errors='coerce').fillna(0).astype(int)
-# El SP devuelve 'censo' o '' (cadena vacía) — nunca NaN, por eso no se puede usar notna()
-lc_raw['es_censo'] = lc_raw['censo'].str.strip().str.lower() == 'censo'
+lc_raw['es_censo'] = lc_raw['censo'].notna()
 lc = lc_raw.drop_duplicates('codigo', keep='first').copy()
 lc['ruta']     = lc['ruta'].astype(str).str.strip()
 lc['cliente']  = lc['cliente'].fillna('').astype(str).str.strip()
@@ -264,39 +200,23 @@ lc['giro']     = lc['giro'].fillna('').astype(str)
 lc_censo    = lc[lc['es_censo']].copy()
 lc_no_censo = lc[~lc['es_censo']].copy()
 
-# Encuestas de visita — intenta MySQL en vivo, fallback al CSV
-def _cargar_encuestas_mysql():
-    """Trae encuestas de visita desde MySQL vía DSN. Devuelve None si falla."""
-    try:
-        import pyodbc
-        with pyodbc.connect(f'DSN={MYSQL_DSN}', timeout=15) as conn:
-            df = pd.read_sql(f'SELECT * FROM {MYSQL_TABLA}', conn)
-        df.columns  = df.columns.str.strip()
-        df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
-        df = df.sort_values('Fecha', ascending=False)
-        print(f"   Encuestas desde MySQL: {len(df):,} filas, {df['codCliente'].nunique():,} clientes únicos.")
-        return df
-    except Exception as e:
-        print(f"   MySQL encuestas falló ({e}), usando CSV...")
-        return None
-
+# Encuestas de visita (CSV actualizable mensualmente)
 def _cargar_encuestas(path):
-    df_enc = _cargar_encuestas_mysql()
-    if df_enc is None:
-        if not os.path.exists(path):
-            print(f"   [AVISO] No se encontró {path} — columna VALIDACION VISITA quedará vacía.")
-            return pd.Series(dtype=str), pd.Series(dtype=str)
-        for enc in ('utf-8-sig', 'latin-1', 'cp1252'):
-            try:
-                df_enc = pd.read_csv(path, encoding=enc, low_memory=False)
-                break
-            except UnicodeDecodeError:
-                continue
-        df_enc.columns = df_enc.columns.str.strip()
-        if 'Fecha' in df_enc.columns:
-            df_enc['Fecha'] = pd.to_datetime(df_enc['Fecha'], dayfirst=True, errors='coerce')
-            df_enc = df_enc.sort_values('Fecha', ascending=False)
+    if not os.path.exists(path):
+        print(f"   [AVISO] No se encontró {path} — columna VALIDACION VISITA quedará vacía.")
+        return pd.Series(dtype=str), pd.Series(dtype=str)
+    for enc in ('utf-8-sig', 'latin-1', 'cp1252'):
+        try:
+            df_enc = pd.read_csv(path, encoding=enc, low_memory=False)
+            break
+        except UnicodeDecodeError:
+            continue
+    df_enc.columns = df_enc.columns.str.strip()
     df_enc['codCliente'] = pd.to_numeric(df_enc['codCliente'], errors='coerce').fillna(0).astype(int)
+    # Tomar la validación más reciente por cliente (por si hay duplicados)
+    if 'Fecha' in df_enc.columns:
+        df_enc['Fecha'] = pd.to_datetime(df_enc['Fecha'], dayfirst=True, errors='coerce')
+        df_enc = df_enc.sort_values('Fecha', ascending=False)
     col_val = 'Validacion de la visita'
     if col_val not in df_enc.columns:
         print(f"   [AVISO] Columna '{col_val}' no encontrada en encuestas.")
@@ -354,6 +274,10 @@ cob_mar, sol_mar = cob_mes(2603)
 cob_abr, sol_abr = cob_mes(2604)
 cob_may, sol_may = cob_mes(2605) if tiene_mayo else (None, None)
 
+# Soles y cobertura no-censo para ticket promedio (calculado aqui, df_no_censo_post ya definido)
+sol_total_no_censo  = df_no_censo_post['total_monto'].sum()
+cob_nc_para_ticket  = df_no_censo_post['ccod_cli'].nunique()
+print(f'   DEBUG: sol_nc={sol_total_no_censo:,.0f}, cob_nc={cob_nc_para_ticket:,}, ticket={sol_total_no_censo/cob_nc_para_ticket:,.2f}')
 
 print(f"   Cobertura total post-reest.: {cob_total:,} ({cob_total/n_censo_total:.1%})")
 print(f"   Mar-26: {cob_mar:,} | Abr-26: {cob_abr:,}" +
@@ -429,28 +353,6 @@ NC_MES_LABELS = {2601:'Ene-26',2602:'Feb-26',2603:'Mar-26',
 sin_compra_censo = (ult_censo_enr['cat_ultima'] == 'SIN COMPRA').sum()
 print(f"   Censo sin ninguna compra post-reest.: {sin_compra_censo:,}")
 print(f"   No-censo en tabla ultima compra: {len(ult_no_censo_enr):,}")
-
-# Motivo no preventa — último estado por cliente (SQL Server)
-def _leer_motivo_nopreventa():
-    """Trae el último dato de TomaPedido por cliente desde SQL Server."""
-    try:
-        import pyodbc
-        with pyodbc.connect(_conn_str_sql(), timeout=30) as conn:
-            df_m = pd.read_sql(
-                "SELECT fecha, codCliente, estado FROM dbo.viewMotivoNoPreVentaTM", conn)
-        df_m['codCliente'] = pd.to_numeric(df_m['codCliente'], errors='coerce').fillna(0).astype(int)
-        df_m['fecha']      = pd.to_datetime(df_m['fecha'], errors='coerce')
-        # Quedarse con el registro más reciente por cliente
-        df_m = (df_m.sort_values('fecha', ascending=False)
-                    .drop_duplicates('codCliente', keep='first')
-                    .set_index('codCliente'))
-        print(f"   Motivo no-preventa: {len(df_m):,} clientes únicos.")
-        return df_m
-    except Exception as e:
-        print(f"   viewMotivoNoPreVentaTM falló ({e}) — columnas estado quedarán vacías.")
-        return pd.DataFrame(columns=['fecha', 'estado'])
-
-df_motivo = _leer_motivo_nopreventa()
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -629,19 +531,18 @@ def _pct(num, den):
 # ── HOJA 1: FUNNEL_CENSO ─────────────────────────────────────────────
 ws1 = wb.create_sheet('FUNNEL_CENSO')
 
-# Ocultar líneas de cuadrícula y zoom 85%
+# Ocultar líneas de cuadrícula
 ws1.sheet_view.showGridLines = False
-ws1.sheet_view.zoomScale = 85
 
 # Anchos de columna — diseño vertical, tablas completas en cols A-P
 ws1.column_dimensions['A'].width = 3.0    # margen izq
-ws1.column_dimensions['B'].width = 43.0
+ws1.column_dimensions['B'].width = 28.0   # SUPERVISOR / SEGMENTO / ETAPA
 ws1.column_dimensions['C'].width = 14.0   # CLIENTES / COB
-ws1.column_dimensions['D'].width = 15.0
+ws1.column_dimensions['D'].width = 10.0   # %
 ws1.column_dimensions['E'].width = 15.0   # SOLES
-ws1.column_dimensions['F'].width = 12.0
-ws1.column_dimensions['G'].width = 12.0
-ws1.column_dimensions['H'].width = 12.0
+ws1.column_dimensions['F'].width = 14.0   # TICKET PROM CENSO
+ws1.column_dimensions['G'].width = 14.0   # TICKET PROM NO CENSO
+ws1.column_dimensions['H'].width = 4.0    # margen separador
 ws1.column_dimensions['I'].width = 20.0   # CATEGORIA
 ws1.column_dimensions['J'].width = 15.0   # MARZO soles
 ws1.column_dimensions['K'].width = 15.0   # ABRIL soles
@@ -695,7 +596,7 @@ datos_seg = [
 ]
 for i, (seg, n, pct, bg, fg) in enumerate(datos_seg, 5):
     bold = (bg == C_NARANJA)
-    cset(ws1, i, 2, seg, bold=bold, fg=fg, bg=bg, sz=11, halign='center')
+    cset(ws1, i, 2, seg, bold=bold, fg=fg, bg=bg, sz=11, halign='left')
     cset(ws1, i, 3, n,   bold=bold, fg=fg, bg=bg, sz=11, num='#,##0')
     cset(ws1, i, 4, pct, bold=bold, fg=fg, bg=bg, sz=11, num='0.0%')
     cset(ws1, i, 5, '',  bg=bg)
@@ -713,12 +614,18 @@ c.alignment = aln()
 ws1.row_dimensions[9].height = 28
 
 # Cabeceras funnel
-hdrs_funnel = ['ETAPA', 'CLIENTES', '% SOBRE CENSO', 'SOLES (S/)']
+hdrs_funnel = ['ETAPA', 'CLIENTES', '% SOBRE CENSO', 'SOLES (S/)', 'TICKET PROM\nCENSO', 'TICKET PROM\nNO CENSO']
 for i, lbl in enumerate(hdrs_funnel):
-    cset(ws1, 10, i+2, lbl, bold=True, fg=C_BLANCO, bg=C_AZUL_OSC, sz=11)
+    cset(ws1, 10, i+2, lbl, bold=True, fg=C_BLANCO, bg=C_AZUL_OSC, sz=11, wrap=(i>=4))
 ws1.row_dimensions[10].height = 28
 
 sin_cob = n_censo_total - cob_total
+
+# Ticket promedio: total_monto / clientes coberturados
+def _ticket(sol, cob_n): return sol / cob_n if cob_n else None
+
+# Ticket no-censo: soles / clientes no-censo coberturados (calculado en sección [2])
+ticket_nc = _ticket(sol_total_no_censo, cob_nc_para_ticket)
 
 # funnel_rows: (etapa, cob, pct, sol, bg, bold)
 funnel_rows = [
@@ -747,15 +654,21 @@ fila_f = 11
 for etapa, cob, pct, sol, bg, bold_row in funnel_rows:
     is_sin_cob = bg == C_ROJO_CLA
     fg_txt = C_ROJO_T if is_sin_cob else 'FF000000'
+    # ticket censo = soles de esta etapa / clientes coberturados de esta etapa
+    ticket_c = _ticket(sol, cob) if (sol is not None and not is_sin_cob) else None
     cset(ws1, fila_f, 2, etapa, bold=bold_row, fg=fg_txt, bg=bg, sz=11, halign='left')
     if cob is not None:
         cset(ws1, fila_f, 3, cob,                           bold=bold_row, fg=fg_txt, bg=bg, sz=11, num='#,##0')
         cset(ws1, fila_f, 4, pct,                           fg=fg_txt, bg=bg, sz=11, num='0.0%')
         cset(ws1, fila_f, 5, sol if sol is not None else 0, fg=fg_txt, bg=bg, sz=11, num='#,##0')
+        cset(ws1, fila_f, 6, ticket_c if ticket_c else '',  fg=fg_txt, bg=bg, sz=11, num='#,##0')
+        cset(ws1, fila_f, 7, ticket_nc if ticket_nc else '', fg=fg_txt, bg=C_AZUL_CLA, sz=11, num='#,##0')
     else:
         cset(ws1, fila_f, 3, 'S/D', bg=bg, sz=11)
         cset(ws1, fila_f, 4, '',    bg=bg)
         cset(ws1, fila_f, 5, '',    bg=bg)
+        cset(ws1, fila_f, 6, '',    bg=bg)
+        cset(ws1, fila_f, 7, '',    bg=bg)
     ws1.row_dimensions[fila_f].height = 18
     fila_f += 1
 
@@ -1025,8 +938,8 @@ ws2.freeze_panes    = 'F2'
 ws3 = wb.create_sheet('ULTIMA_COMPRA_CENSO')
 
 hdrs3 = ['SUPERVISOR','VENDEDOR','RUTA','CODIGO','CLIENTE','DIA VISITA',
-         'GIRO','C/ COMPRA','ULTIMA CATEGORIA','ULT FECHA COMPRA','MONTO (S/)','ULT ENCUESTA','ULT FECHA ENCUESTA','ULT DATO TOMAPEDIDO','ULT FECHA TOMAPEDIDO','DIAS SIN COMPRA']
-WCOLS3 = [17.43, 32.57, 7.0, 9.0, 30.0, 8.0, 20.0, 9.0, 18.0, 13.0, 12.0, 22.0, 13.0, 22.0, 13.0, 14.0]
+         'GIRO','C/ COMPRA','ULTIMA CATEGORIA','ULT FECHA COMPRA','MONTO (S/)','VALIDACION VISITA','ULT FECHA VISITA','DIAS SIN COMPRA']
+WCOLS3 = [17.43, 32.57, 7.0, 9.0, 30.0, 8.0, 20.0, 9.0, 18.0, 13.0, 12.0, 22.0, 13.0, 14.0]
 for i, w in enumerate(WCOLS3, 1):
     ws3.column_dimensions[get_column_letter(i)].width = w
 
@@ -1072,14 +985,9 @@ for _, cr in ult_censo_enr.iterrows():
     cset(ws3, row3, 9,  cat_txt,           bg=bg_row, sz=9)
     cset(ws3, row3, 10, fecha_str,         bg=bg_row, sz=9)
     cset(ws3, row3, 11, float(cr['monto_ultima']), bg=bg_row, sz=9, num='#,##0')
-    motivo_row  = df_motivo.loc[cod3] if cod3 in df_motivo.index else None
-    estado3     = motivo_row['estado'] if motivo_row is not None else ''
-    fec_est3    = motivo_row['fecha'].strftime('%d/%m/%Y') if (motivo_row is not None and pd.notna(motivo_row['fecha'])) else ''
     cset(ws3, row3, 12, val_vis3,          bg=bg_row, sz=9, halign='left')
     cset(ws3, row3, 13, fec_vis3,          bg=bg_row, sz=9)
-    cset(ws3, row3, 14, estado3,           bg=bg_row, sz=9, halign='left')
-    cset(ws3, row3, 15, fec_est3,          bg=bg_row, sz=9)
-    cset(ws3, row3, 16, dias if not sin_comp else '',
+    cset(ws3, row3, 14, dias if not sin_comp else '',
          bg=bg_dias, fg=fg_dias, bold=(not sin_comp), sz=9)
     row3 += 1
 
@@ -1099,10 +1007,10 @@ ws4 = wb.create_sheet('ULTIMA_COMPRA_NO_CENSO')
 
 _nc_mes_hdrs = [NC_MES_LABELS.get(m, str(m)) for m in MESES_NC]
 hdrs4 = ['SUPERVISOR','VENDEDOR','RUTA','CODIGO','CLIENTE','DIA VISITA',
-         'GIRO','ULTIMA CATEGORIA','ULT FECHA COMPRA','MONTO (S/)'] + _nc_mes_hdrs + ['VALIDACION VISITA','ULT FECHA VISITA','ULT DATO TOMAPEDIDO','ULT FECHA TOMAPEDIDO','DIAS SIN COMPRA']
+         'GIRO','ULTIMA CATEGORIA','ULT FECHA COMPRA','MONTO (S/)'] + _nc_mes_hdrs + ['VALIDACION VISITA','ULT FECHA VISITA','DIAS SIN COMPRA']
 WCOLS4_BASE = [17.43, 32.57, 7.0, 9.0, 30.0, 8.0, 20.0, 18.0, 13.0, 12.0]
 WCOLS4_MES  = [11.0] * len(MESES_NC)
-WCOLS4_FIN  = [22.0, 13.0, 22.0, 13.0, 14.0]
+WCOLS4_FIN  = [22.0, 13.0, 14.0]
 WCOLS4 = WCOLS4_BASE + WCOLS4_MES + WCOLS4_FIN
 for i, w in enumerate(WCOLS4, 1):
     ws4.column_dimensions[get_column_letter(i)].width = w
@@ -1154,13 +1062,8 @@ for _, cr in ult_nc_filt.iterrows():
         bg_m4  = C_VERDE if sol_m4 > 0 else bg_row
         cset(ws4, row4, col4, sol_m4 if sol_m4 > 0 else '', bg=bg_m4, sz=9, num='#,##0')
         col4 += 1
-    motivo_row4 = df_motivo.loc[cod4] if cod4 in df_motivo.index else None
-    estado4     = motivo_row4['estado'] if motivo_row4 is not None else ''
-    fec_est4    = motivo_row4['fecha'].strftime('%d/%m/%Y') if (motivo_row4 is not None and pd.notna(motivo_row4['fecha'])) else ''
     cset(ws4, row4, col4,   val_vis4, bg=bg_row, sz=9, halign='left'); col4+=1
     cset(ws4, row4, col4,   fec_vis4, bg=bg_row, sz=9);                col4+=1
-    cset(ws4, row4, col4,   estado4,  bg=bg_row, sz=9, halign='left'); col4+=1
-    cset(ws4, row4, col4,   fec_est4, bg=bg_row, sz=9);                col4+=1
     cset(ws4, row4, col4,   dias if not sin_comp else 'SIN COMPRA',
          bg=bg_dias, fg=fg_dias, bold=True, sz=9)
     row4 += 1
@@ -1302,7 +1205,7 @@ def _escribir_bloque_hist(ws, fila_ini, df_bloque, id_cols, id_labels, id_widths
         col += 1
     for i, m in enumerate(MESES_HIST):
         sol_tot = float(df_bloque[f'sol_{m}'].sum())
-        cob_tot = int(df_bloque[f'cob_{m}'].sum())
+        cob_tot = int((df_bloque[f'cob_{m}'] > 0).sum())
         sol_tot_para_var = (sol_tot * FACTOR_PROY_MAY) if (m == 2605 and FACTOR_PROY_MAY) else sol_tot
         if i > 0:
             m_prev   = MESES_HIST[i-1]
@@ -1370,194 +1273,18 @@ fila_cur = _escribir_bloque_hist(
 
 ws5.freeze_panes = 'D3'
 
-
 # ════════════════════════════════════════════════════════════════════════
-# HOJA 6: AVANCE — filas=categorías, columnas=meses 2026 + real mayo +
-#                  proyectado mayo + cuota mayo + % var proy vs cuota
-# ════════════════════════════════════════════════════════════════════════
-def _leer_cuotas_por_cat(path_cuotas):
-    """Devuelve dict {categoria: cuota_soles} desde la fila TOTAL GLOBAL de CUOTAS_SOLES."""
-    try:
-        df_q = pd.read_excel(path_cuotas, sheet_name='CUOTAS_SOLES', header=None)
-        # Fila 3 = headers de categoría (cols 3..22); fila 2 = valores TOTAL GLOBAL
-        headers = df_q.iloc[3, 3:23].tolist()
-        valores = df_q.iloc[2, 3:23].tolist()
-        return {h: float(pd.to_numeric(v, errors='coerce') or 0)
-                for h, v in zip(headers, valores)}
-    except Exception as e:
-        print(f"   [AVISO] No se pudo leer cuotas por categoría: {e}")
-        return {}
-
-CUOTAS_MAY_PATH = 'C:/proyectos/SSFF/cuotas_ssff_may2026_ok.xlsx'
-cuotas_cat      = _leer_cuotas_por_cat(CUOTAS_MAY_PATH)
-cuota_may_total = sum(cuotas_cat.values())
-print(f"   Cuota mayo 2026: S/ {cuota_may_total:,.0f}  ({len(cuotas_cat)} categorías)")
-
-# Meses históricos de 2026 (cerrados = todos menos el actual en curso)
-MESES_HIST_2026  = [m for m in MESES_HIST if m >= 2601]
-MES_ACTUAL_2026  = max(MESES_HIST_2026) if MESES_HIST_2026 else None   # 2605 si tiene_mayo
-MESES_CERRADOS   = [m for m in MESES_HIST_2026 if m != MES_ACTUAL_2026]
-
-# Soles por categoría x mes — misma fuente que HISTORICO (df_hist_full = toda la cartera con supervisor)
-_av_cat_mes = (df_hist_full[df_hist_full['mes'].isin(MESES_HIST_2026)]
-               .groupby(['categoria', 'mes'])['total_monto'].sum()
-               .unstack(fill_value=0.0))
-for m in MESES_HIST_2026:
-    if m not in _av_cat_mes.columns:
-        _av_cat_mes[m] = 0.0
-
-# Ordenar categorías por cuota mayo desc (las sin cuota al final)
-_orden_cats = sorted(CATS_VALIDAS,
-                     key=lambda c: cuotas_cat.get(c, 0),
-                     reverse=True)
-
-ws6 = wb.create_sheet('AVANCE')
-ws6.sheet_view.showGridLines = False
-ws6.sheet_view.zoomScale = 85
-
-# ── Layout de columnas ────────────────────────────────────────────────
-# col 1 = margen | col 2 = CATEGORIA
-# cols 3..N = meses cerrados (uno por mes)
-# col N+1 = REAL mes actual | N+2 = PROYECTADO | N+3 = CUOTA | N+4 = %VAR
-COL_CAT      = 2
-COL_MES_INI  = 3
-n_cerr       = len(MESES_CERRADOS)
-COL_REAL_ACT = COL_MES_INI + n_cerr       # real mes actual (mayo)
-COL_PROY     = COL_REAL_ACT + 1
-COL_CUOTA    = COL_PROY + 1
-COL_VAR      = COL_CUOTA + 1
-NCOLS_AV     = COL_VAR                     # última col con datos
-
-ws6.column_dimensions['A'].width = 2.5
-ws6.column_dimensions[get_column_letter(COL_CAT)].width = 22.0
-for i in range(n_cerr):
-    ws6.column_dimensions[get_column_letter(COL_MES_INI + i)].width = 13.0
-ws6.column_dimensions[get_column_letter(COL_REAL_ACT)].width = 14.0
-ws6.column_dimensions[get_column_letter(COL_PROY)].width    = 14.0
-ws6.column_dimensions[get_column_letter(COL_CUOTA)].width   = 14.0
-ws6.column_dimensions[get_column_letter(COL_VAR)].width     = 13.0
-ws6.column_dimensions[get_column_letter(NCOLS_AV + 1)].width = 2.5
-
-# ── Título ────────────────────────────────────────────────────────────
-lbl_act = MESES_LABELS.get(MES_ACTUAL_2026, str(MES_ACTUAL_2026)) if MES_ACTUAL_2026 else 'MES ACTUAL'
-ws6.merge_cells(f'A1:{get_column_letter(NCOLS_AV + 1)}1')
-c = ws6['A1']
-c.value     = f'AVANCE DE VENTAS POR CATEGORÍA — CENSO  |  Al {FECHA_HOY_STR}'
-c.font      = fnt(bold=True, color=C_BLANCO, sz=13)
-c.fill      = fill(C_AZUL_OSC)
-c.alignment = aln()
-ws6.row_dimensions[1].height = 28
-
-# ── Cabecera de grupo: meses cerrados | mes actual | proyectado/cuota ─
-# Fila 2: etiquetas de grupo
-ws6.merge_cells(f'{get_column_letter(COL_MES_INI)}2:{get_column_letter(COL_MES_INI + n_cerr - 1)}2') if n_cerr > 0 else None
-if n_cerr > 0:
-    cset(ws6, 2, COL_MES_INI, 'HISTÓRICO 2026', bold=True, fg=C_BLANCO, bg=C_AZUL_OSC,
-         sz=9, merge_to=COL_MES_INI + n_cerr - 1)
-cset(ws6, 2, COL_CAT, '', bg=C_AZUL_OSC)
-cset(ws6, 2, COL_REAL_ACT, f'{lbl_act} (REAL)',       bold=True, fg=C_BLANCO,      bg=C_AZUL_OSC, sz=9)
-cset(ws6, 2, COL_PROY,     f'{lbl_act} (PROYECTADO)', bold=True, fg=C_AMARILLO_T,  bg=C_AZUL_MED, sz=9)
-cset(ws6, 2, COL_CUOTA,    'CUOTA',                   bold=True, fg=C_BLANCO,      bg=C_AZUL_OSC, sz=9)
-cset(ws6, 2, COL_VAR,      '% PROY vs CUOTA',         bold=True, fg=C_AZUL_MED_T,  bg=C_AZUL_MED, sz=9)
-ws6.row_dimensions[2].height = 20
-
-# Fila 3: sub-cabecera con nombre de mes
-cset(ws6, 3, COL_CAT, 'CATEGORÍA', bold=True, fg=C_BLANCO, bg=C_AZUL_OSC, sz=10)
-for i, m in enumerate(MESES_CERRADOS):
-    cset(ws6, 3, COL_MES_INI + i, MESES_LABELS.get(m, str(m)),
-         bold=True, fg=C_BLANCO, bg=C_AZUL_OSC, sz=9)
-cset(ws6, 3, COL_REAL_ACT, lbl_act,  bold=True, fg=C_BLANCO,     bg=C_AZUL_OSC, sz=9)
-cset(ws6, 3, COL_PROY,     'Proy.',  bold=True, fg=C_AZUL_MED_T, bg=C_AZUL_MED, sz=9)
-cset(ws6, 3, COL_CUOTA,    'Cuota',  bold=True, fg=C_BLANCO,     bg=C_AZUL_OSC, sz=9)
-cset(ws6, 3, COL_VAR,      '% Var',  bold=True, fg=C_AZUL_MED_T, bg=C_AZUL_MED, sz=9)
-ws6.row_dimensions[3].height = 20
-
-# ── Filas de datos: una por categoría ────────────────────────────────
-fila = 4
-tot_cerr  = {m: 0.0 for m in MESES_CERRADOS}
-tot_real  = 0.0
-tot_proy  = 0.0
-tot_cuota = 0.0
-
-for idx_c, cat in enumerate(_orden_cats):
-    bg_row = C_BLANCO if idx_c % 2 == 0 else C_GRIS
-    cset(ws6, fila, COL_CAT, cat, bold=False, bg=bg_row, sz=10, halign='left')
-
-    # Meses cerrados
-    for i, m in enumerate(MESES_CERRADOS):
-        val = float(_av_cat_mes.at[cat, m]) if cat in _av_cat_mes.index else 0.0
-        cset(ws6, fila, COL_MES_INI + i, val if val else '', bg=bg_row, sz=9, num='#,##0')
-        tot_cerr[m] += val
-
-    # Real mes actual
-    sol_real = float(_av_cat_mes.at[cat, MES_ACTUAL_2026]) if (MES_ACTUAL_2026 and cat in _av_cat_mes.index) else 0.0
-    cset(ws6, fila, COL_REAL_ACT, sol_real if sol_real else '', bg=bg_row, sz=9, num='#,##0')
-    tot_real += sol_real
-
-    # Proyectado
-    sol_proy = sol_real * FACTOR_PROY_MAY if FACTOR_PROY_MAY else sol_real
-    cset(ws6, fila, COL_PROY, sol_proy if sol_proy else '', bg=C_AZUL_CLA, sz=9, num='#,##0')
-    tot_proy += sol_proy
-
-    # Cuota
-    cuota_cat = cuotas_cat.get(cat, 0.0)
-    cset(ws6, fila, COL_CUOTA, cuota_cat if cuota_cat else '', bg=bg_row, sz=9, num='#,##0')
-    tot_cuota += cuota_cat
-
-    # % var proy vs cuota
-    if cuota_cat:
-        var = sol_proy / cuota_cat
-        bg_v = C_AZUL_CLA if var >= 1.0 else C_ROJO_CLA
-        fg_v = C_AZUL_MED_T if var >= 1.0 else C_ROJO_T
-        cset(ws6, fila, COL_VAR, var, bold=True, bg=bg_v, fg=fg_v, sz=9, num='0.0%')
-    else:
-        cset(ws6, fila, COL_VAR, '—', bg=bg_row, sz=9)
-
-    ws6.row_dimensions[fila].height = 17
-    fila += 1
-
-# ── Fila TOTAL ────────────────────────────────────────────────────────
-cset(ws6, fila, COL_CAT, 'TOTAL', bold=True, bg=C_NARANJA, fg=C_NARANJA_T, sz=10, halign='left')
-for i, m in enumerate(MESES_CERRADOS):
-    cset(ws6, fila, COL_MES_INI + i, tot_cerr[m] if tot_cerr[m] else '',
-         bold=True, bg=C_NARANJA, fg=C_NARANJA_T, sz=9, num='#,##0')
-cset(ws6, fila, COL_REAL_ACT, tot_real if tot_real else '',
-     bold=True, bg=C_NARANJA, fg=C_NARANJA_T, sz=9, num='#,##0')
-cset(ws6, fila, COL_PROY, tot_proy if tot_proy else '',
-     bold=True, bg=C_NARANJA, fg=C_NARANJA_T, sz=9, num='#,##0')
-cset(ws6, fila, COL_CUOTA, tot_cuota if tot_cuota else '',
-     bold=True, bg=C_NARANJA, fg=C_NARANJA_T, sz=9, num='#,##0')
-if tot_cuota:
-    var_tot = tot_proy / tot_cuota
-    bg_vt = C_AZUL_CLA if var_tot >= 1.0 else C_ROJO_CLA
-    fg_vt = C_AZUL_MED_T if var_tot >= 1.0 else C_ROJO_T
-    cset(ws6, fila, COL_VAR, var_tot, bold=True, bg=bg_vt, fg=fg_vt, sz=9, num='0.0%')
-else:
-    cset(ws6, fila, COL_VAR, '—', bold=True, bg=C_NARANJA, fg=C_NARANJA_T, sz=9)
-ws6.row_dimensions[fila].height = 20
-
-# Nota al pie
-nota_row = fila + 2
-ws6.merge_cells(f'{get_column_letter(COL_CAT)}{nota_row}:{get_column_letter(NCOLS_AV)}{nota_row}')
-cn = ws6.cell(row=nota_row, column=COL_CAT,
-              value='* PROYECTADO = soles reales del mes actual × factor días hábiles restantes')
-cn.font      = fnt(bold=False, color='FF888888', sz=8)
-cn.alignment = aln('left')
-
-ws6.freeze_panes = f'{get_column_letter(COL_MES_INI)}4'
-
-# ════════════════════════════════════════════════════════════════════════
-# [8] GUARDAR LIBRO PRINCIPAL
+# GUARDAR LIBRO PRINCIPAL
 # ════════════════════════════════════════════════════════════════════════
 wb.save(OUTPUT)
 print(f"\nGuardado: {OUTPUT}")
 
 
 # ════════════════════════════════════════════════════════════════════════
-# [9] LIBROS POR SUPERVISOR — uno por cada supervisor con datos
+# FILETEADO — un libro por supervisor (4 hojas, sin FUNNEL_CENSO)
 # ════════════════════════════════════════════════════════════════════════
 def _escribir_libro_supervisor(sup_nombre):
-    """Genera un workbook con 4 hojas filtradas para el supervisor indicado."""
+    """Genera un workbook con las 4 hojas filtradas para un supervisor."""
 
     # ── Filtros de datos ──────────────────────────────────────────────
     det_s      = det_censo[det_censo['supervisor'] == sup_nombre].copy()
@@ -1612,6 +1339,10 @@ def _escribir_libro_supervisor(sup_nombre):
             val = float(cr.get(m, 0))
             cset(ws, fila, col, val if val > 0 else 0, bg=C_VERDE if val > 0 else bg_row, sz=9, num='#,##0')
             col += 1
+        if tiene_mayo:
+            val = float(cr.get(2605, 0))
+            cset(ws, fila, col, val if val > 0 else 0, bg=C_VERDE if val > 0 else bg_row, sz=9, num='#,##0')
+            col += 1
         bg_nc = C_ROJO_CLA if not es_cob else bg_row
         fg_nc = C_ROJO_T   if not es_cob else 'FF000000'
         cset(ws, fila, col, 0 if es_cob else 1, bold=(not es_cob), fg=fg_nc, bg=bg_nc, sz=9)
@@ -1624,8 +1355,8 @@ def _escribir_libro_supervisor(sup_nombre):
     ws = wb_s.create_sheet('ULTIMA_COMPRA_CENSO')
     hdrs3 = ['SUPERVISOR','VENDEDOR','RUTA','CODIGO','CLIENTE','DIA VISITA',
              'GIRO','C/ COMPRA','ULTIMA CATEGORIA','ULT FECHA COMPRA','MONTO (S/)',
-             'VALIDACION VISITA','ULT FECHA VISITA','ULT DATO TOMAPEDIDO','ULT FECHA TOMAPEDIDO','DIAS SIN COMPRA']
-    WCOLS3 = [17.43,32.57,7.0,9.0,30.0,8.0,20.0,9.0,18.0,13.0,12.0,22.0,13.0,22.0,13.0,14.0]
+             'VALIDACION VISITA','ULT FECHA VISITA','DIAS SIN COMPRA']
+    WCOLS3 = [17.43,32.57,7.0,9.0,30.0,8.0,20.0,9.0,18.0,13.0,12.0,22.0,13.0,14.0]
     for i, w in enumerate(WCOLS3, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     titulo(ws, 1, f'ULTIMA COMPRA -- CLIENTES CENSO  |  Referencia: {FECHA_HOY_STR}', len(hdrs3))
@@ -1657,9 +1388,6 @@ def _escribir_libro_supervisor(sup_nombre):
         compra_si = 'NO' if sin_comp else 'SI'
         bg_comp   = C_ROJO_CLA if sin_comp else C_VERDE
         fg_comp   = C_ROJO_T   if sin_comp else C_VERDE_T
-        motivo_row_s = df_motivo.loc[cod] if cod in df_motivo.index else None
-        estado_s     = motivo_row_s['estado'] if motivo_row_s is not None else ''
-        fec_est_s    = motivo_row_s['fecha'].strftime('%d/%m/%Y') if (motivo_row_s is not None and pd.notna(motivo_row_s['fecha'])) else ''
         cset(ws, row,  1, cr['supervisor'],          bg=bg_row, sz=9, halign='left')
         cset(ws, row,  2, cr['nom_vend'],            bg=bg_row, sz=9, halign='left')
         cset(ws, row,  3, cr['ruta'],                bg=bg_row, sz=9)
@@ -1673,9 +1401,7 @@ def _escribir_libro_supervisor(sup_nombre):
         cset(ws, row, 11, float(cr['monto_ultima']), bg=bg_row, sz=9, num='#,##0')
         cset(ws, row, 12, val_vis,                   bg=bg_row, sz=9, halign='left')
         cset(ws, row, 13, fec_vis,                   bg=bg_row, sz=9)
-        cset(ws, row, 14, estado_s,                  bg=bg_row, sz=9, halign='left')
-        cset(ws, row, 15, fec_est_s,                 bg=bg_row, sz=9)
-        cset(ws, row, 16, dias if not sin_comp else '', bg=bg_dias, fg=fg_dias, bold=(not sin_comp), sz=9)
+        cset(ws, row, 14, dias if not sin_comp else '', bg=bg_dias, fg=fg_dias, bold=(not sin_comp), sz=9)
         row += 1
     ws.auto_filter.ref = f'A2:{get_column_letter(len(hdrs3))}{row-1}'
     ws.freeze_panes    = 'A3'
@@ -1685,9 +1411,9 @@ def _escribir_libro_supervisor(sup_nombre):
     _nc_mes_hdrs = [NC_MES_LABELS.get(m, str(m)) for m in MESES_NC]
     hdrs4 = ['SUPERVISOR','VENDEDOR','RUTA','CODIGO','CLIENTE','DIA VISITA',
              'GIRO','ULTIMA CATEGORIA','ULT FECHA COMPRA','MONTO (S/)'] + _nc_mes_hdrs + \
-            ['VALIDACION VISITA','ULT FECHA VISITA','ULT DATO TOMAPEDIDO','ULT FECHA TOMAPEDIDO','DIAS SIN COMPRA']
+            ['VALIDACION VISITA','ULT FECHA VISITA','DIAS SIN COMPRA']
     WCOLS4 = [17.43,32.57,7.0,9.0,30.0,8.0,20.0,18.0,13.0,12.0] + \
-             [11.0]*len(MESES_NC) + [22.0,13.0,22.0,13.0,14.0]
+             [11.0]*len(MESES_NC) + [22.0,13.0,14.0]
     for i, w in enumerate(WCOLS4, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     titulo(ws, 1, f'ULTIMA COMPRA -- CLIENTES NO CENSO  |  Referencia: {FECHA_HOY_STR}', len(hdrs4))
@@ -1713,9 +1439,6 @@ def _escribir_libro_supervisor(sup_nombre):
         val_vis   = enc_validacion.get(cod, ''); val_vis = '' if pd.isna(val_vis) else val_vis
         fec_vis_r = enc_fecha.get(cod, None)
         fec_vis   = fec_vis_r.strftime('%d/%m/%Y') if pd.notna(fec_vis_r) else ''
-        motivo_row_nc = df_motivo.loc[cod] if cod in df_motivo.index else None
-        estado_nc     = motivo_row_nc['estado'] if motivo_row_nc is not None else ''
-        fec_est_nc    = motivo_row_nc['fecha'].strftime('%d/%m/%Y') if (motivo_row_nc is not None and pd.notna(motivo_row_nc['fecha'])) else ''
         cset(ws, row,  1, cr['supervisor'],          bg=bg_row, sz=9, halign='left')
         cset(ws, row,  2, cr['nom_vend'],            bg=bg_row, sz=9, halign='left')
         cset(ws, row,  3, cr['ruta'],                bg=bg_row, sz=9)
@@ -1731,10 +1454,8 @@ def _escribir_libro_supervisor(sup_nombre):
             sol_m = float(sol_nc_mes.loc[cod, m]) if cod in sol_nc_mes.index and m in sol_nc_mes.columns else 0.0
             cset(ws, row, col4, sol_m if sol_m > 0 else '', bg=C_VERDE if sol_m > 0 else bg_row, sz=9, num='#,##0')
             col4 += 1
-        cset(ws, row, col4,   val_vis,  bg=bg_row, sz=9, halign='left'); col4+=1
-        cset(ws, row, col4,   fec_vis,  bg=bg_row, sz=9);                col4+=1
-        cset(ws, row, col4,   estado_nc,bg=bg_row, sz=9, halign='left'); col4+=1
-        cset(ws, row, col4,   fec_est_nc,bg=bg_row, sz=9);               col4+=1
+        cset(ws, row, col4,   val_vis, bg=bg_row, sz=9, halign='left'); col4+=1
+        cset(ws, row, col4,   fec_vis, bg=bg_row, sz=9);                col4+=1
         cset(ws, row, col4,   dias if not sin_comp else 'SIN COMPRA', bg=bg_dias, fg=fg_dias, bold=True, sz=9)
         row += 1
     ws.auto_filter.ref = f'A2:{get_column_letter(len(hdrs4))}{row-1}'
@@ -1775,21 +1496,17 @@ def _escribir_libro_supervisor(sup_nombre):
     return out_sup
 
 
-# ── Ejecutar generación de libros por supervisor ───────────────────────
-SOLO_GENERAL = 'general' in [a.lower() for a in sys.argv[1:]]
+# Obtener lista de supervisores únicos (del maestro de clientes)
+supervisores_unicos = sorted(lc['supervisor'].dropna().unique())
+supervisores_unicos = [s for s in supervisores_unicos if str(s).strip() != '']
 
-if SOLO_GENERAL:
-    print("\n[9] Modo 'general' — se omiten los libros por supervisor.")
-else:
-    supervisores_activos = sorted(
-        s for s in det_censo['supervisor'].dropna().unique()
-        if s and str(s).strip()
-    )
-    print(f"\n[9] Generando libros individuales: {len(supervisores_activos)} supervisores...")
-    for sup in supervisores_activos:
-        _escribir_libro_supervisor(sup)
-
-print("\nDone. Todos los archivos generados correctamente.")
+print(f"\n[8] Generando libros por supervisor ({len(supervisores_unicos)} supervisores)...")
+dir_output = os.path.dirname(OUTPUT)
+for sup in supervisores_unicos:
+    ruta_sup = _escribir_libro_supervisor(sup)
+    if ruta_sup:
+        print(f"   OK {os.path.basename(ruta_sup)}")
+print(f"   Fileteado completado.")
 
 
 # ════════════════════════════════════════════════════════════════════════

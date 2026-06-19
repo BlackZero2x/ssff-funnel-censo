@@ -4,16 +4,64 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import warnings
+import argparse
+from datetime import date
 warnings.filterwarnings('ignore')
+
+# ════════════════════════════════════════════════════════════════════════
+# ARGUMENTO DE PERIODO  -- python generar_cuota.py --periodo 202606
+# ════════════════════════════════════════════════════════════════════════
+_parser = argparse.ArgumentParser(description='Genera cuota mensual SSFF')
+_parser.add_argument('--periodo', type=str, default=None,
+                     help='Periodo de cuota en formato YYYYMM (ej: 202606). '
+                          'Si se omite se usa el mes siguiente al actual.')
+_args = _parser.parse_args()
+
+if _args.periodo:
+    _periodo_cuota = int(_args.periodo)
+else:
+    _hoy = date.today()
+    _sig = _hoy.month % 12 + 1
+    _anio = _hoy.year + (1 if _hoy.month == 12 else 0)
+    _periodo_cuota = int(f'{_anio}{_sig:02d}')
+
+# Derivar periodo anterior (mes de referencia para proyeccion)
+_anio_c  = _periodo_cuota // 100
+_mes_c   = _periodo_cuota % 100
+_mes_ref = _mes_c - 1 if _mes_c > 1 else 12
+_anio_r  = _anio_c if _mes_c > 1 else _anio_c - 1
+_periodo_ref = int(f'{_anio_r}{_mes_ref:02d}')
+
+# Nombres de mes para archivos y textos
+_MESES_ES = {1:'ene',2:'feb',3:'mar',4:'abr',5:'may',6:'jun',
+             7:'jul',8:'ago',9:'sep',10:'oct',11:'nov',12:'dic'}
+_MESES_ES_LARGO = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',
+                   7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'}
+
+_nombre_cuota = f'{_MESES_ES[_mes_c]}{_anio_c}'   # ej: jun2026
+_nombre_ref   = f'{_MESES_ES[_mes_ref]}{_anio_r}'  # ej: may2026
+_label_cuota  = f'{_MESES_ES_LARGO[_mes_c]} {_anio_c}'   # ej: Junio 2026
+_label_ref    = f'{_MESES_ES_LARGO[_mes_ref]} {_anio_r}'  # ej: Mayo 2026
+
+# Periodos Tipo 1: los 2 meses anteriores al mes de referencia (febrero excluido si es atipico)
+_mes_t1b = _mes_ref - 1 if _mes_ref > 1 else 12
+_anio_t1b = _anio_r if _mes_ref > 1 else _anio_r - 1
+_periodo_t1b = int(f'{_anio_t1b}{_mes_t1b:02d}')
+
+# Periodos en formato YYMM (4 dígitos) para comparar con el CSV (export_data_ssff.csv usa YYMM)
+_periodo_ref_yymm  = int(f'{_anio_r % 100:02d}{_mes_ref:02d}')
+_periodo_t1b_yymm  = int(f'{_anio_t1b % 100:02d}{_mes_t1b:02d}')
+
+print(f"Periodo de cuota: {_periodo_cuota}  |  Referencia: {_periodo_ref} ({_periodo_ref_yymm})  |  T1: [{_periodo_t1b_yymm}, {_periodo_ref_yymm}]")
 
 # ════════════════════════════════════════════════════════════════════════
 # PARAMETROS DE ENTRADA  ← ajustar cada mes
 # ════════════════════════════════════════════════════════════════════════
-DIAS_LAB_MES_ACTUAL    = 25      # días laborales del mes que se cierra (abril)
+DIAS_LAB_MES_ACTUAL    = 25      # días laborales del mes de referencia
 DIAS_LAB_TRANSCURRIDOS = 23      # días laborales transcurridos al corte del CSV
-DIAS_LAB_MES_CUOTA     = 25      # días laborales del mes para el que se genera cuota (mayo)
+DIAS_LAB_MES_CUOTA     = 25      # días laborales del mes para el que se genera cuota
 CRECIMIENTO            = 0.05    # crecimiento esperado (5%)
-CUOTA_GERENCIA         = 11_025_000  # cuota fijada por gerencia (None = usar proyectado*crecimiento)
+CUOTA_GERENCIA         = None    # cuota fijada por gerencia (None = usar proyectado*crecimiento)
 
 # ════════════════════════════════════════════════════════════════════════
 # CONSTANTES DEL PROYECTO
@@ -21,7 +69,7 @@ CUOTA_GERENCIA         = 11_025_000  # cuota fijada por gerencia (None = usar pr
 SSFF_CATS         = ['CERDO', 'HUEVO', 'PAVO', 'POLLO', 'PROCESADOS']
 LINEAS_EMBUTIDOS  = ['EMBUTIDOS']
 LINEAS_CONGELADOS = ['ELABORADOS', 'SEMIELABORADOS', 'PRECOCIDOS']
-PERIODOS_T1       = [2603, 2604]      # feb (2602) excluido: mes atipicamente bajo
+PERIODOS_T1       = [_periodo_t1b_yymm, _periodo_ref_yymm]
 FFVV_ORDER        = ['F8', 'M0', 'KB', 'P0', 'V0']
 FFVV_KB           = 'KB'
 
@@ -34,8 +82,8 @@ SSFF_ORDEN  = sorted(SSFF_CATS)
 RESTO_ORDEN = sorted([c for c in CATS_VALIDAS if c not in SSFF_CATS])
 CATS_ORDEN  = SSFF_ORDEN + RESTO_ORDEN
 
-OUTPUT_CUOTAS = 'C:/proyectos/SSFF/cuotas_ssff_may2026.xlsx'
-OUTPUT_BBDD   = 'C:/proyectos/SSFF/CUOTAS_BBDD_202605.xlsx'
+OUTPUT_CUOTAS = f'C:/proyectos/SSFF/cuotas_ssff_{_nombre_cuota}.xlsx'
+OUTPUT_BBDD   = f'C:/proyectos/SSFF/CUOTAS_BBDD_{_periodo_cuota}.xlsx'
 
 # ── CARGA ──────────────────────────────────────────────────────────────
 print("[1] Cargando datos...")
@@ -62,10 +110,17 @@ cartera = pd.read_excel('C:/proyectos/SSFF/cartera_simplificada.xlsx')
 cartera = cartera.rename(columns={'codigo': 'ccod_cli', 'ruta': 'ccod_ruta'})
 cartera['es_censo'] = cartera['censo'].notna()
 
-# Cuotas de abril (para hoja VERSUS)
-cuotas_abr_raw = pd.read_excel('C:/proyectos/SSFF/cuotas_ssff_abr2026.xlsx',
-                                sheet_name='CUOTAS', header=4)
-cuotas_abr_raw = cuotas_abr_raw[cuotas_abr_raw['RUTA'].notna() & cuotas_abr_raw['RUT'].notna()].copy()
+# Cuotas del mes anterior (para hoja VERSUS) — soporta formato nuevo (CUOTAS_SOLES, header=3) y antiguo (CUOTAS, header=4)
+_ref_file = f'C:/proyectos/SSFF/cuotas_ssff_{_nombre_ref}.xlsx'
+try:
+    cuotas_abr_raw = pd.read_excel(_ref_file, sheet_name='CUOTAS_SOLES', header=3)
+    _col_ffvv_ref = 'FFVV'
+except Exception:
+    cuotas_abr_raw = pd.read_excel(_ref_file, sheet_name='CUOTAS', header=4)
+    _col_ffvv_ref = 'RUT'
+cuotas_abr_raw = cuotas_abr_raw[cuotas_abr_raw['RUTA'].notna() & cuotas_abr_raw[_col_ffvv_ref].notna()].copy()
+cuotas_abr_raw = cuotas_abr_raw[~cuotas_abr_raw['RUTA'].astype(str).str.contains('TOTAL', na=False)]
+cuotas_abr_raw = cuotas_abr_raw[~cuotas_abr_raw[_col_ffvv_ref].astype(str).str.startswith('SUBTOTAL')]
 cuotas_abr_raw = cuotas_abr_raw.set_index('RUTA')
 CATS_ABR = [c for c in CATS_ORDEN if c in cuotas_abr_raw.columns]
 
@@ -90,35 +145,51 @@ CUOTA_MINIMA_RUTA = 100_000   # piso absoluto por ruta (todas las categorias)
 print(f"   Historico global: {len(hist):,} | Detalle rutas: {len(det):,} | Rutas: {len(rutas_oficiales)}")
 print(f"   Cuotas oficiales SSFF cargadas: {oficial_soles.to_dict()}")
 
-# ── PROYECCION LINEAL DE ABRIL ─────────────────────────────────────────
-print("\n[2] Proyeccion lineal de abril y objetivo mayo...")
-real_abril_global = hist[hist['PERIODO'] == 2604]['MONTO'].sum()
+# Ajuste de periodos si el mes de referencia aún no existe en el CSV
+_periodos_csv = sorted(hist['PERIODO'].unique())
+_ultimo_csv   = _periodos_csv[-1]
+if _periodo_ref_yymm not in _periodos_csv:
+    print(f"   AVISO: periodo {_periodo_ref_yymm} no encontrado en CSV. Usando {_ultimo_csv} como referencia.")
+    _desplazamiento    = _periodo_ref_yymm - _ultimo_csv  # cuántos meses adelante está
+    _periodo_ref_yymm  = _ultimo_csv
+    _periodo_t1b_yymm  = sorted(_periodos_csv)[-2] if len(_periodos_csv) >= 2 else _ultimo_csv
+    PERIODOS_T1        = [_periodo_t1b_yymm, _periodo_ref_yymm]
+    # Recalcular labels para que los textos sean correctos
+    _anio_r2 = 2000 + int(str(_periodo_ref_yymm)[:2])
+    _mes_ref2 = int(str(_periodo_ref_yymm)[2:])
+    _label_ref   = f'{_MESES_ES_LARGO[_mes_ref2]} {_anio_r2}'
+    _nombre_ref  = f'{_MESES_ES[_mes_ref2]}{_anio_r2}'
+    print(f"   Periodos T1 ajustados: {PERIODOS_T1}  |  Referencia: {_label_ref}")
+
+# ── PROYECCION LINEAL DEL MES DE REFERENCIA ────────────────────────────
+print(f"\n[2] Proyeccion lineal de {_label_ref} y objetivo {_label_cuota}...")
+real_abril_global = hist[hist['PERIODO'] == _periodo_ref_yymm]['MONTO'].sum()
 # Proyeccion lineal: (real / dias_transcurridos) * dias_totales_mes
 PROJ_ABRIL      = (real_abril_global / DIAS_LAB_TRANSCURRIDOS) * DIAS_LAB_MES_ACTUAL
 factor_proy     = PROJ_ABRIL / real_abril_global
 CUOTA_TOTAL_OBJ = CUOTA_GERENCIA if CUOTA_GERENCIA is not None else PROJ_ABRIL * (1 + CRECIMIENTO)
 
-print(f"   Real CSV abril ({DIAS_LAB_TRANSCURRIDOS} dias): S/ {real_abril_global:,.0f}")
+print(f"   Real CSV {_label_ref} ({DIAS_LAB_TRANSCURRIDOS} dias): S/ {real_abril_global:,.0f}")
 print(f"   Proyectado lineal ({DIAS_LAB_MES_ACTUAL} dias): S/ {PROJ_ABRIL:,.0f}  (factor: {factor_proy:.4f})")
 if CUOTA_GERENCIA:
-    print(f"   Cuota mayo (fijada por gerencia): S/ {CUOTA_TOTAL_OBJ:,.0f}")
+    print(f"   Cuota {_label_cuota} (fijada por gerencia): S/ {CUOTA_TOTAL_OBJ:,.0f}")
 else:
-    print(f"   Cuota mayo (+{CRECIMIENTO*100:.0f}%): S/ {CUOTA_TOTAL_OBJ:,.0f}")
+    print(f"   Cuota {_label_cuota} (+{CRECIMIENTO*100:.0f}%): S/ {CUOTA_TOTAL_OBJ:,.0f}")
 
 # Proyectar abril en datasets
 det_proy = det.copy()
-mask_abr = det_proy['mes'] == 2604
+mask_abr = det_proy['mes'] == _periodo_ref_yymm
 det_proy.loc[mask_abr, 'total_monto']   *= factor_proy
 det_proy.loc[mask_abr, 'total_volumen'] *= factor_proy
 det_proy.loc[mask_abr, 'pedidos']       *= factor_proy
 
 hist_proy = hist.copy()
-mask_abr_h = hist_proy['PERIODO'] == 2604
+mask_abr_h = hist_proy['PERIODO'] == _periodo_ref_yymm
 hist_proy.loc[mask_abr_h, 'MONTO']   *= factor_proy
 hist_proy.loc[mask_abr_h, 'VOLUMEN'] *= factor_proy
 
 # Proyectado lineal por ruta (para criterio minimo y columna extra en CUOTAS_SOLES)
-abr_real_ruta = (det[det['mes'] == 2604]
+abr_real_ruta = (det[det['mes'] == _periodo_ref_yymm]
                  .groupby('ccod_ruta')['total_monto'].sum())
 proj_ruta = {}
 for ruta in rutas_oficiales:
@@ -393,9 +464,9 @@ hist_vol_pivot = hist_vol_pivot[['EMBUTIDOS', 'CONGELADOS']]
 hist_vol_pivot['TOTAL'] = hist_vol_pivot.sum(axis=1)
 hist_vol_pivot = hist_vol_pivot.sort_index()
 
-# Proyectado abril por ruta (para tabla 3 HISTORICO)
-det_mar = det[det['mes'] == 2603]
-det_abr = det[det['mes'] == 2604].copy()
+# Proyectado mes de referencia por ruta (para tabla 3 HISTORICO)
+det_mar = det[det['mes'] == _periodo_t1b_yymm]
+det_abr = det[det['mes'] == _periodo_ref_yymm].copy()
 det_abr['total_monto'] *= factor_proy
 
 mar_ruta = (det_mar.groupby(['ccod_ruta', 'categoria'])['total_monto']
@@ -739,11 +810,11 @@ def proc_fila(ws, r, campo, valor, bold_val=False):
     return r + 1
 
 r = 1
-r = proc_titulo(ws_proc, r, 'PROCESO DE GENERACION DE CUOTA — MAYO 2026')
+r = proc_titulo(ws_proc, r, f'PROCESO DE GENERACION DE CUOTA — {_label_cuota.upper()}')
 r += 1
 
 r = proc_subtitulo(ws_proc, r, '1. OBJETIVO GENERAL')
-r = proc_fila(ws_proc, r, 'Periodo de cuota', 'Mayo 2026 (202605)')
+r = proc_fila(ws_proc, r, 'Periodo de cuota', f'{_label_cuota} ({_periodo_cuota})')
 r = proc_fila(ws_proc, r, 'Objetivo total (soles)', f'S/ {cuota_final_total:,.0f}  (sin IGV)', True)
 r = proc_fila(ws_proc, r, 'Objetivo volumen SSFF — EMBUTIDOS',
               f'{dist_vol_linea["EMBUTIDOS"].sum():,.0f} kg', True)
@@ -754,13 +825,13 @@ r = proc_fila(ws_proc, r, 'Objetivo volumen SSFF — TOTAL PROCESADOS',
 r += 1
 
 r = proc_subtitulo(ws_proc, r, '2. PARAMETROS UTILIZADOS')
-r = proc_fila(ws_proc, r, 'Dias lab. mes actual (abril)', str(DIAS_LAB_MES_ACTUAL))
+r = proc_fila(ws_proc, r, f'Dias lab. mes actual ({_label_ref})', str(DIAS_LAB_MES_ACTUAL))
 r = proc_fila(ws_proc, r, 'Dias lab. transcurridos (corte CSV)', str(DIAS_LAB_TRANSCURRIDOS))
-r = proc_fila(ws_proc, r, 'Dias lab. mes de cuota (mayo)', str(DIAS_LAB_MES_CUOTA))
+r = proc_fila(ws_proc, r, f'Dias lab. mes de cuota ({_label_cuota})', str(DIAS_LAB_MES_CUOTA))
 r = proc_fila(ws_proc, r, 'Crecimiento esperado', f'{CRECIMIENTO*100:.1f}%')
-r = proc_fila(ws_proc, r, 'Real acumulado abril (CSV)',
+r = proc_fila(ws_proc, r, f'Real acumulado {_label_ref} (CSV)',
               f'S/ {real_abril_global:,.0f}')
-r = proc_fila(ws_proc, r, 'Proyectado lineal abril',
+r = proc_fila(ws_proc, r, f'Proyectado lineal {_label_ref}',
               f'S/ {PROJ_ABRIL:,.0f}  =  ({real_abril_global:,.0f} / {DIAS_LAB_TRANSCURRIDOS}) x {DIAS_LAB_MES_ACTUAL}')
 if CUOTA_GERENCIA:
     r = proc_fila(ws_proc, r, 'Cuota total objetivo',
@@ -826,19 +897,19 @@ r = proc_fila(ws_proc, r, 'Cartera de clientes',
 r += 1
 
 r = proc_subtitulo(ws_proc, r, '6. ARCHIVOS GENERADOS')
-r = proc_fila(ws_proc, r, 'Presentacion Gerencia', 'cuotas_ssff_may2026.xlsx')
-r = proc_fila(ws_proc, r, '  > Hoja CUOTAS_SOLES', 'Cuota en soles por ruta x categoria + proyectado abril')
+r = proc_fila(ws_proc, r, 'Presentacion Gerencia', f'cuotas_ssff_{_nombre_cuota}.xlsx')
+r = proc_fila(ws_proc, r, '  > Hoja CUOTAS_SOLES', f'Cuota en soles por ruta x categoria + proyectado {_label_ref}')
 r = proc_fila(ws_proc, r, '  > Hoja CUOTA_COBERTURA', 'Cuota de clientes unicos por ruta x categoria')
 r = proc_fila(ws_proc, r, '  > Hoja CUOTA_VOL_SSFF',
               'Cuota kg y cobertura EMBUTIDOS y CONGELADOS — FFVV F8 y M0. '
               'CONGELADOS = ELABORADOS + SEMIELABORADOS + PRECOCIDOS. '
               'Cobertura TOTAL calza con PROCESADOS en hoja CUOTA_COBERTURA.')
-r = proc_fila(ws_proc, r, '  > Hoja HISTORICO', 'Historico mensual, variacion % y tabla marzo vs abril por ruta')
+r = proc_fila(ws_proc, r, '  > Hoja HISTORICO', f'Historico mensual, variacion % y tabla {_MESES_ES_LARGO[_mes_t1b]} vs {_label_ref} por ruta')
 r = proc_fila(ws_proc, r, '  > Hoja VERSUS',
-              'Comparativo por ruta: cuota abril vs proyectado abril vs cuota mayo. '
+              f'Comparativo por ruta: cuota {_label_ref} vs proyectado {_label_ref} vs cuota {_label_cuota}. '
               'Resumen por categoria: proyectado vs cuota para estimar cierre.')
-r = proc_fila(ws_proc, r, 'BBDD Sistemas', 'CUOTAS_BBDD_202605.xlsx')
-r = proc_fila(ws_proc, r, '  > Hoja 202605',
+r = proc_fila(ws_proc, r, 'BBDD Sistemas', f'CUOTAS_BBDD_{_periodo_cuota}.xlsx')
+r = proc_fila(ws_proc, r, f'  > Hoja {_periodo_cuota}',
               'Estructura relacional: 79 filas GENERAL + 1,580 filas LINEA = 1,659 filas')
 
 # ── HOJA CUOTAS_SOLES ─────────────────────────────────────────────────
@@ -995,9 +1066,9 @@ for idx, periodo in enumerate(periodos_disp):
 
 # Fila proyectado abril
 f = fill(C_PESO)
-ws_h.cell(row=r, column=1, value='2604*').fill = f
+ws_h.cell(row=r, column=1, value=f'{_periodo_ref_yymm}*').fill = f
 ws_h.cell(row=r, column=1).font = fnt(bold=True, sz=9)
-proj_cat_h = hist_proy[hist_proy['PERIODO'] == 2604].groupby('CATEGORIA')['MONTO'].sum()
+proj_cat_h = hist_proy[hist_proy['PERIODO'] == _periodo_ref_yymm].groupby('CATEGORIA')['MONTO'].sum()
 for i, cat in enumerate(CATS_ORDEN):
     c = ws_h.cell(row=r, column=2+i, value=int(round(proj_cat_h.get(cat, 0))))
     c.number_format = '#,##0'
@@ -1011,9 +1082,9 @@ c.font = fnt(bold=True, sz=9)
 c.alignment = aln('right')
 r += 1
 
-# Fila cuota mayo 2026
+# Fila cuota del mes de cuota
 f = fill(C_VERDE)
-ws_h.cell(row=r, column=1, value='2605 CUOTA').fill = f
+ws_h.cell(row=r, column=1, value=f'{_periodo_cuota} CUOTA').fill = f
 ws_h.cell(row=r, column=1).font = fnt(bold=True, sz=9)
 for i, cat in enumerate(CATS_ORDEN):
     c = ws_h.cell(row=r, column=2+i, value=cuota_mayo_cat.get(cat, 0))
@@ -1028,7 +1099,7 @@ c.font = fnt(bold=True, color='FFFFFFFF', sz=9)
 c.alignment = aln('right')
 r += 1
 
-ws_h.cell(row=r, column=1, value='* 2604 = proyectado lineal  |  2605 CUOTA = cuota asignada mayo 2026')
+ws_h.cell(row=r, column=1, value=f'* {_periodo_ref_yymm} = proyectado lineal  |  {_periodo_cuota} CUOTA = cuota asignada {_label_cuota}')
 ws_h.cell(row=r, column=1).font = fnt(sz=8)
 r += 2
 
@@ -1200,8 +1271,8 @@ for idx, periodo in enumerate(periodos_vol):
         c.font = fnt(bold=(g == 'TOTAL'), sz=9)
     r += 1
 
-# Fila proyectado abril volumen
-det_abr_vol = det[det['mes'] == 2604].copy()
+# Fila proyectado mes de referencia (volumen)
+det_abr_vol = det[det['mes'] == _periodo_ref_yymm].copy()
 det_abr_vol['total_volumen'] *= factor_proy
 det_abr_vol['GRUPO'] = np.where(
     det_abr_vol['linea'].isin(LINEAS_EMBUTIDOS), 'EMBUTIDOS',
@@ -1214,7 +1285,7 @@ con_proy  = int(round(proj_vol_abr.get('CONGELADOS', 0)))
 tot_v_proy = emb_proy + con_proy
 
 f = fill(C_PESO)
-ws_h.cell(row=r, column=1, value='2604*').fill = f
+ws_h.cell(row=r, column=1, value=f'{_periodo_ref_yymm}*').fill = f
 ws_h.cell(row=r, column=1).font = fnt(bold=True, sz=9)
 for j, val in enumerate([emb_proy, con_proy, tot_v_proy]):
     c = ws_h.cell(row=r, column=2+j, value=val)
@@ -1224,12 +1295,12 @@ for j, val in enumerate([emb_proy, con_proy, tot_v_proy]):
     c.font = fnt(bold=(j == 2), sz=9)
 r += 1
 
-# Fila cuota mayo volumen
+# Fila cuota volumen
 emb_cuota  = int(round(dist_vol_linea['EMBUTIDOS'].sum()))
 con_cuota  = int(round(dist_vol_linea['CONGELADOS'].sum()))
 tot_v_cuota = int(round(dist_vol_linea['TOTAL'].sum()))
 f = fill(C_VERDE)
-ws_h.cell(row=r, column=1, value='2605 CUOTA').fill = f
+ws_h.cell(row=r, column=1, value=f'{_periodo_cuota} CUOTA').fill = f
 ws_h.cell(row=r, column=1).font = fnt(bold=True, sz=9)
 for j, val in enumerate([emb_cuota, con_cuota, tot_v_cuota]):
     c = ws_h.cell(row=r, column=2+j, value=val)
@@ -1240,7 +1311,7 @@ for j, val in enumerate([emb_cuota, con_cuota, tot_v_cuota]):
 r += 1
 
 ws_h.cell(row=r, column=1,
-          value='* 2604 = proyectado lineal  |  2605 CUOTA = cuota asignada mayo 2026').font = fnt(sz=8)
+          value=f'* {_periodo_ref_yymm} = proyectado lineal  |  {_periodo_cuota} CUOTA = cuota asignada {_label_cuota}').font = fnt(sz=8)
 r += 1
 
 ws_h.freeze_panes = 'B3'
@@ -1252,11 +1323,20 @@ ws_v = wb.create_sheet('VERSUS')
 # Proyectado abril por ruta (total general)
 proj_ruta_ser = pd.Series(proj_ruta)
 
-# Cuota abril por ruta (del archivo cuotas_ssff_abr2026.xlsx)
+# Cuota mes anterior por ruta (del archivo cuotas_ssff del mes de referencia)
 cuota_abr_ruta = {}
+_cats_abr_num = [c for c in CATS_ABR if c in cuotas_abr_raw.columns]
 for ruta in rutas_oficiales:
-    if ruta in cuotas_abr_raw.index and 'GENERAL' in cuotas_abr_raw.columns:
-        cuota_abr_ruta[ruta] = float(cuotas_abr_raw.loc[ruta, 'GENERAL'])
+    if ruta in cuotas_abr_raw.index:
+        if 'GENERAL' in cuotas_abr_raw.columns:
+            val = pd.to_numeric(cuotas_abr_raw.loc[ruta, 'GENERAL'], errors='coerce')
+        else:
+            val = float('nan')
+        # Si GENERAL es NaN o 0 (formula no evaluada), recalcular desde categorias
+        if pd.isna(val) or val == 0:
+            val = sum(pd.to_numeric(cuotas_abr_raw.loc[ruta, c], errors='coerce') or 0
+                      for c in _cats_abr_num)
+        cuota_abr_ruta[ruta] = float(val) if not pd.isna(val) else 0.0
     else:
         cuota_abr_ruta[ruta] = 0.0
 
@@ -1267,8 +1347,8 @@ cuota_may_ruta = dist_monto['GENERAL'].to_dict()
 COL_R  = 1   # inicio tabla rutas
 COL_C  = 10  # inicio tabla categorias (J)
 
-# Calcular proyectado abril por categoria (desde det con factor)
-proj_cat_abr = (det_proy[det_proy['mes'] == 2604]
+# Calcular proyectado mes de referencia por categoria (desde det con factor)
+proj_cat_abr = (det_proy[det_proy['mes'] == _periodo_ref_yymm]
                 .groupby('categoria')['total_monto'].sum())
 # Cuota abril por categoria (desde el archivo)
 cuota_abr_cat = {}
@@ -1429,7 +1509,7 @@ print(f"   Guardado: {OUTPUT_CUOTAS}")
 # GENERAR LIBRO BBDD
 # ════════════════════════════════════════════════════════════════════════
 print("\n[10] Generando BBDD...")
-PERIODO_BBDD = '202605'
+PERIODO_BBDD = str(_periodo_cuota)
 
 wb_bbdd = Workbook()
 ws_bbdd = wb_bbdd.active
@@ -1486,7 +1566,7 @@ print(f"   Guardado: {OUTPUT_BBDD}")
 print(f"\n{'='*60}")
 print("VERIFICACION FINAL")
 print(f"{'='*60}")
-print(f"  Cuota mayo:          S/ {dist_monto['GENERAL'].sum():,.0f}")
+print(f"  Cuota {_label_cuota}:  S/ {dist_monto['GENERAL'].sum():,.0f}")
 print(f"  Objetivo (proj+5%):  S/ {CUOTA_TOTAL_OBJ:,.0f}")
 print(f"  KB en SSFF:          S/ {dist_monto.loc[rutas_kb, SSFF_CATS].sum().sum():.0f}  (debe ser 0)")
 print(f"  Rutas VOL_SSFF:      {len(rutas_f8)} (F8 + M0)")

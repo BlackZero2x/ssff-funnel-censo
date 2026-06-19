@@ -1,0 +1,95 @@
+{
+  "my_number": "51975155264@c.us",
+
+  "carlos_wa_contact": "Carlos P",
+  "carlos_message": "Buen dia Carlos, adjunto el avance de ventas actualizado.",
+
+  "groups": {
+    "Canal Fija 2026 Gestión AUREN":              "120363399204738966@g.us",
+    "Back de AUREN 2025":                         "120363419554645692@g.us",
+    "⚡⚡VPA - Auren":                            "120363153556094927@g.us",
+    "Canal Fija 2026 Supervisores y Jefes":       "120363400698885262@g.us"
+  },
+
+  "supervisor_alert_jefes_group": "Canal Fija 2026 Gestión AUREN",
+  "watchdog_notify_to": "Back de AUREN 2025",
+
+  "supervisor_wa_contacts": {
+  },
+
+  "contacts": {
+    "Cristian Rodríguez":      "51962969371@c.us",
+    "Jesús Ascencios":         "51944956042@c.us",
+    "Guillermo J. Hinostroza": "51962969500@c.us",
+    "Carlos P":                "51968035020@c.us",
+    "Italo":                   "51977170609@c.us",
+    "José Huiza":              "51995338379@c.us"
+  },
+
+  "messages": {
+    "canal_fija_capturas": "📊 TDS actualizado - {fecha}",
+    "canal_fija_libro": "📁 Libro Carlos actualizado:\n{link}",
+    "cristian_archivo": "📁 FIJA RU Altas Migras actualizado:\n{link}",
+    "jesus_seguimiento": "📁 Seguimiento FIJA (Mar-2026) actualizado:\n{link}",
+    "backs_avance": "📊 Avance resumido actualizado:\n{link}"
+  },
+
+  "message_variants": {
+    "backs_message": [
+      "Buen dia equipo, el avance de ventas fue actualizado. Por favor revisen sus hojas de GDrive.",
+      "Hola equipo, ya esta disponible el avance del dia en GDrive. Pueden revisarlo.",
+      "Buenos dias, se actualizo el reporte de ventas. Ingresen a GDrive para verlo.",
+      "Equipo, el avance de hoy ya esta cargado en GDrive. Cualquier consulta me avisan.",
+      "Buen dia, reporte de ventas actualizado en GDrive. Revisen cuando puedan."
+    ],
+    "italo_message": [
+      "Hola Italo, el reporte fue actualizado en Google Sheets. Ya puedes revisarlo.",
+      "Hola Italo, ya esta disponible el reporte actualizado en Sheets.",
+      "Buenas Italo, el reporte de hoy ya esta en Google Sheets.",
+      "Hola Italo, subimos el reporte actualizado. Puedes revisarlo en Sheets.",
+      "Italo, reporte del dia cargado en Google Sheets. Cualquier cosa me avisas."
+    ],
+    "jesus_caption": [
+      "Buen dia Jesus, adjunto el avance de ventas actualizado.",
+      "Hola Jesus, te mando el avance de hoy.",
+      "Jesus, adjunto el reporte de ventas del dia.",
+      "Buenos dias Jesus, aca el avance actualizado.",
+      "Jesus, te comparto el reporte de hoy."
+    ],
+    "cristian_caption": [
+      "Hola Cristian, adjunto el avance de ventas actualizado.",
+      "Buenos dias Cristian, te mando el reporte del dia.",
+      "Cristian, aca el avance de ventas de hoy.",
+      "Hola Cristian, adjunto el reporte actualizado.",
+      "Cristian, te comparto el avance de hoy."
+    ],
+    "guillermo_caption": [
+      "Buen dia Emo, adjunto el avance de ventas actualizado.",
+      "Hola Guillermo, te mando el reporte del dia.",
+      "Emo, aca el avance de ventas de hoy.",
+      "Buenos dias Guillermo, adjunto el reporte actualizado.",
+      "Guillermo, te comparto el avance de hoy."
+    ],
+    "carlos_message_variants": [
+      "Buen dia Carlos, adjunto el avance de ventas actualizado.",
+      "Hola Carlos, te mando el reporte del dia.",
+      "Carlos, aca el avance de ventas de hoy.",
+      "Buenos dias Carlos, adjunto el reporte actualizado.",
+      "Carlos, te comparto el avance de hoy."
+    ],
+    "jefes_trigger_llego": [
+      "Hola a todos, el avance de ventas ya está disponible. Disculpen la demora, se envía a continuación.",
+      "Buenas, ya llegó la info de Integratel. El avance del día se envía ahora.",
+      "Hola equipo, ya tenemos la info disponible. Enviamos el avance a continuación, gracias por la espera."
+    ],
+    "jose_trigger_alerta": [
+      "Hola José, buen día. Te escribo porque hasta el momento no llegó el correo de avance de ventas. ¿Podrías revisar el proceso del Avance Movistar? Gracias.",
+      "Buenos días José. Quería avisarte que aún no llegó el trigger del avance de ventas. Si puedes revisar el proceso cuando tengas un momento, te lo agradezco.",
+      "Hola José, buenos días. No llegó el correo de actualización del avance hasta ahora. ¿Podrías echarle un ojo al proceso cuando puedas? Gracias.",
+      "Buenos días José. El proceso de avance de ventas aún no disparó el correo de hoy. Cuando puedas, ¿podrías revisar? Gracias.",
+      "Hola José, buen día. Te comento que todavía no llega el correo del avance Movistar. ¿Podrías revisar el proceso? Muchas gracias."
+    ]
+  },
+
+  "jose_trigger_contact": "José Huiza"
+}
