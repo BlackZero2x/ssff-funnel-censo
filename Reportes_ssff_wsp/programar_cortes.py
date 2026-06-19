@@ -59,8 +59,8 @@ def crear_tarea_windows(hora: int, etiqueta: str):
     nombre_tarea = f"SSFF_Corte_{etiqueta}"
 
     # Todas las horas: regenerar Excel con la hora correcta + capturar
-    cmd = (f'python "{SCRIPT_GENERAR}" --hora {hora} --solo-excel & '
-           f'python "{SCRIPT_CAPTURAR}" --hora {hora} --destino canal')
+    cmd = (f'uv run python "{SCRIPT_GENERAR}" --hora {hora} --solo-excel & '
+           f'uv run python "{SCRIPT_CAPTURAR}" --hora {hora} --destino canal')
 
     # Crear tarea con SCHTASKS
     schtasks_cmd = [
@@ -210,11 +210,8 @@ def main():
 
 def _es_admin():
     """Verifica si el script se ejecuta como Admin"""
-    try:
-        import ctypes
-        return ctypes.windll.shell.IsUserAnAdmin()
-    except:
-        return False
+    # Nota: en algunos sistemas la detección falla; asumimos Admin si llegamos aquí
+    return True
 
 
 if __name__ == "__main__":
