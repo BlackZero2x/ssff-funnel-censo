@@ -739,26 +739,26 @@ Ejemplos:
 
                 # Verificar si puede enviar
                 if not sender._puede_enviar():
-                    print('   ⚠️  Cuenta bloqueada, saltando envío')
+                    print('   [WARN]  Cuenta bloqueada, saltando envío')
                 else:
                     grupo_id = config.get('groups', {}).get('Canal_SSFF_2026_Gestion', '')
                     if not grupo_id:
-                        print('   ⚠️  ID de grupo no configurado en config.json')
+                        print('   [WARN]  ID de grupo no configurado en config.json')
                     else:
                         # Mensaje automático
-                        mensaje = f"📊 Corte de Ventas — {nombre_dia} {hoy.strftime('%d/%m/%Y')}\n⏰ Corte: {hora_lbl}\n✅ Reporte generado"
+                        mensaje = f"📊 Corte de Ventas — {nombre_dia} {hoy.strftime('%d/%m/%Y')}\n⏰ Corte: {hora_lbl}\n[OK] Reporte generado"
 
                         if sender.send_to_group(grupo_id, mensaje, imagen_path=out):
-                            print(f'   ✅ Enviado a Canal SSFF')
+                            print(f'   [OK] Enviado a Canal SSFF')
                         else:
-                            print(f'   ❌ Error al enviar a WhatsApp')
+                            print(f'   [ERROR] Error al enviar a WhatsApp')
             else:
-                print(f'   ⚠️  config.json no encontrado (saltando envío automático)')
+                print(f'   [WARN]  config.json no encontrado (saltando envío automático)')
 
         except ImportError:
-            print('   ⚠️  wa_sender_antibang no disponible (saltando envío)')
+            print('   [WARN]  wa_sender_antibang no disponible (saltando envío)')
         except Exception as e:
-            print(f'   ❌ Error en envío: {e}')
+            print(f'   [ERROR] Error en envío: {e}')
     else:
         print('\n[5] Omitiendo envío a WhatsApp (--solo-excel activo)')
 

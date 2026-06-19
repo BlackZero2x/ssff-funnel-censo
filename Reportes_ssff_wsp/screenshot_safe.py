@@ -92,14 +92,14 @@ class ScreenshotManager:
                     f.write(f"ID={self.id}\n")
 
                 self.adquirido = True
-                _logger.info(f"✅ Lock adquirido: {self.id}")
+                _logger.info(f"[OK] Lock adquirido: {self.id}")
                 return True
 
             except FileExistsError:
                 # Otro proceso tiene el lock
                 edad = self._edad_lock()
                 if edad > 120:  # Si lock tiene >2 min, probablemente es stale
-                    _logger.warning(f"⚠️  Lock stale detectado ({edad}s): {self.lock_file}")
+                    _logger.warning(f"[WARN]  Lock stale detectado ({edad}s): {self.lock_file}")
                     try:
                         self.lock_file.unlink()
                         continue
@@ -107,14 +107,14 @@ class ScreenshotManager:
                         pass
 
                 # Esperar y reintentar
-                _logger.debug(f"⏳ Esperando lock: {self.id} (edad={edad}s)")
+                _logger.debug(f"[WAITING] Esperando lock: {self.id} (edad={edad}s)")
                 time.sleep(intervalo)
 
             except Exception as e:
-                _logger.error(f"❌ Error adquiriendo lock: {e}")
+                _logger.error(f"[ERROR] Error adquiriendo lock: {e}")
                 return False
 
-        _logger.error(f"❌ Timeout adquiriendo lock: {self.id}")
+        _logger.error(f"[ERROR] Timeout adquiriendo lock: {self.id}")
         return False
 
     def liberar_lock(self) -> bool:
@@ -130,10 +130,10 @@ class ScreenshotManager:
         try:
             self.lock_file.unlink()
             self.adquirido = False
-            _logger.info(f"🔓 Lock liberado: {self.id}")
+            _logger.info(f"[UNLOCK] Lock liberado: {self.id}")
             return True
         except Exception as e:
-            _logger.error(f"❌ Error liberando lock: {e}")
+            _logger.error(f"[ERROR] Error liberando lock: {e}")
             return False
 
     def _edad_lock(self) -> int:
@@ -183,7 +183,7 @@ def capturar_tabla_excel(worksheet, rango: str, ruta_png: str,
         import win32gui
         import ctypes
     except ImportError:
-        _logger.error("❌ Requeridas: PIL, win32gui (pip install pillow pywin32)")
+        _logger.error("[ERROR] Requeridas: PIL, win32gui (pip install pillow pywin32)")
         return False
 
     try:
@@ -213,7 +213,7 @@ def capturar_tabla_excel(worksheet, rango: str, ruta_png: str,
 
             time.sleep(tiempo_espera)
         except Exception as e:
-            _logger.warning(f"⚠️  No se pudo traer Excel al frente: {e}")
+            _logger.warning(f"[WARN]  No se pudo traer Excel al frente: {e}")
 
         # CopyPicture (con reintentos)
         for intento in range(3):
@@ -223,7 +223,7 @@ def capturar_tabla_excel(worksheet, rango: str, ruta_png: str,
                 break
             except Exception as e:
                 if intento < 2:
-                    _logger.warning(f"⚠️  CopyPicture intento {intento+1} fallido: {e}")
+                    _logger.warning(f"[WARN]  CopyPicture intento {intento+1} fallido: {e}")
                     time.sleep(1 + intento * 0.5)
                 else:
                     raise
@@ -231,7 +231,7 @@ def capturar_tabla_excel(worksheet, rango: str, ruta_png: str,
         # Pegar desde clipboard
         img = ImageGrab.grabclipboard()
         if not img:
-            _logger.error(f"❌ Clipboard vacío (no hay imagen)")
+            _logger.error(f"[ERROR] Clipboard vacío (no hay imagen)")
             return False
 
         # Escalar para mejor resolución
@@ -243,11 +243,11 @@ def capturar_tabla_excel(worksheet, rango: str, ruta_png: str,
         Path(ruta_png).parent.mkdir(parents=True, exist_ok=True)
         img.save(ruta_png, "PNG")
 
-        _logger.info(f"✅ Imagen capturada: {ruta_png} ({nuevo_ancho}x{nuevo_alto})")
+        _logger.info(f"[OK] Imagen capturada: {ruta_png} ({nuevo_ancho}x{nuevo_alto})")
         return True
 
     except Exception as e:
-        _logger.error(f"❌ Error capturando tabla: {e}")
+        _logger.error(f"[ERROR] Error capturando tabla: {e}")
         return False
 
 
@@ -255,13 +255,13 @@ if __name__ == "__main__":
     # Test de mutex
     logging.basicConfig(level=logging.INFO)
 
-    print("🔒 Test ScreenshotManager")
+    print("[LOCK] Test ScreenshotManager")
     mgr = ScreenshotManager("TEST_SSFF_8AM")
 
     if mgr.adquirir_lock(timeout=5):
-        print("✅ Lock adquirido")
+        print("[OK] Lock adquirido")
         time.sleep(2)
         mgr.liberar_lock()
-        print("✅ Lock liberado")
+        print("[OK] Lock liberado")
     else:
-        print("❌ Timeout esperando lock")
+        print("[ERROR] Timeout esperando lock")

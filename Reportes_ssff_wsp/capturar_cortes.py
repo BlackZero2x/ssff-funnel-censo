@@ -58,7 +58,7 @@ def cargar_config() -> dict:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        _logger.error(f"❌ Error cargando config: {e}")
+        _logger.error(f"[ERROR] Error cargando config: {e}")
         raise
 
 
@@ -85,7 +85,7 @@ def capturar_tablas(archivo_excel: str, hora: int) -> dict:
     mgr = ScreenshotManager(f"SSFF_Corte_{etiqueta_hora}")
 
     if not mgr.adquirir_lock(timeout=30):
-        _logger.error(f"❌ Timeout esperando lock para {etiqueta_hora}")
+        _logger.error(f"[ERROR] Timeout esperando lock para {etiqueta_hora}")
         return {'exito': False}
 
     resultado = {'exito': False, 'general': None, 'zonal': None, 'supervisor': None}
@@ -106,28 +106,28 @@ def capturar_tablas(archivo_excel: str, hora: int) -> dict:
         for nombre, (rango, archivo) in tablas.items():
             ruta_png = IMAGENES_DIR / archivo
 
-            _logger.info(f"📸 Capturando {nombre.upper()} ({rango})...")
+            _logger.info(f"[CAPTURE] Capturando {nombre.upper()} ({rango})...")
 
             if capturar_tabla_excel(hoja, rango, str(ruta_png), escala=2.5):
                 resultado[nombre] = str(ruta_png)
-                _logger.info(f"✅ {nombre.upper()} guardado: {ruta_png}")
+                _logger.info(f"[OK] {nombre.upper()} guardado: {ruta_png}")
             else:
-                _logger.error(f"❌ Fallo capturando {nombre.upper()}")
+                _logger.error(f"[ERROR] Fallo capturando {nombre.upper()}")
 
             time.sleep(0.5)  # Pausa entre capturas
 
         resultado['exito'] = all(resultado[k] for k in ['general', 'zonal', 'supervisor'])
 
         if resultado['exito']:
-            _logger.info(f"✅ Todas las tablas capturadas para {etiqueta_hora}")
+            _logger.info(f"[OK] Todas las tablas capturadas para {etiqueta_hora}")
         else:
-            _logger.error(f"❌ Algunas tablas fallaron para {etiqueta_hora}")
+            _logger.error(f"[ERROR] Algunas tablas fallaron para {etiqueta_hora}")
 
         libro.close()
         app.quit()
 
     except Exception as e:
-        _logger.error(f"❌ Error durante captura: {e}")
+        _logger.error(f"[ERROR] Error durante captura: {e}")
 
     finally:
         mgr.liberar_lock()
@@ -149,25 +149,25 @@ def enviar_corte_whatsapp(imagenes: dict, destino: str, hora: int, config: dict)
         True si envío exitoso
     """
     if not imagenes.get('exito'):
-        _logger.error("❌ No hay imágenes para enviar")
+        _logger.error("[ERROR] No hay imágenes para enviar")
         return False
 
     etiqueta_hora = HORA_LBL.get(hora, f"{hora}H")
-    msg_titulo = f"🔔 CORTE {etiqueta_hora}"
+    msg_titulo = f"CORTE {etiqueta_hora}"
 
     try:
         destinos = config.get('cortes_horarios', {}).get('destinos', {})
         numero_destino = destinos.get(destino)
 
         if not numero_destino:
-            _logger.error(f"❌ Destino '{destino}' no configurado")
+            _logger.error(f"[ERROR] Destino '{destino}' no configurado")
             return False
 
         # Inicializar sender antibang
         sender = WABangSafeSender()
 
         # Mensaje con etiqueta
-        msg = f"{msg_titulo}\n\n📊 GENERAL\n"
+        msg = f"{msg_titulo}\n\nGENERAL\n"
 
         # Enviar 3 imágenes secuencialmente con delays
         archivos = [
@@ -178,31 +178,30 @@ def enviar_corte_whatsapp(imagenes: dict, destino: str, hora: int, config: dict)
 
         for nombre_tabla, ruta_img in archivos:
             if not ruta_img or not Path(ruta_img).exists():
-                _logger.warning(f"⚠️  Imagen no encontrada: {ruta_img}")
+                _logger.warning(f"[WARN]  Imagen no encontrada: {ruta_img}")
                 continue
 
             msg_img = f"{msg_titulo} - {nombre_tabla}"
 
-            _logger.info(f"📤 Enviando {nombre_tabla} a {destino}...")
+            _logger.info(f"[SEND] Enviando {nombre_tabla} a {destino}...")
 
             exito = sender.send_to_group(
                 numero_destino,
                 msg_img,
-                image_path=ruta_img,
-                wait_seconds=True  # Usa delay aleatorio 3-8s
+                imagen_path=ruta_img
             )
 
             if not exito:
-                _logger.error(f"❌ Fallo enviando {nombre_tabla}")
+                _logger.error(f"[ERROR] Fallo enviando {nombre_tabla}")
                 return False
 
             time.sleep(2)  # Pausa entre imágenes
 
-        _logger.info(f"✅ Corte {etiqueta_hora} enviado a {destino}")
+        _logger.info(f"[OK] Corte {etiqueta_hora} enviado a {destino}")
         return True
 
     except Exception as e:
-        _logger.error(f"❌ Error enviando corte: {e}")
+        _logger.error(f"[ERROR] Error enviando corte: {e}")
         return False
 
 
@@ -223,49 +222,49 @@ def main():
 
     # Validar hora
     if not 8 <= args.hora <= 18:
-        _logger.error("❌ Hora debe estar entre 8 y 18")
+        _logger.error("[ERROR] Hora debe estar entre 8 y 18")
         return
 
     # Buscar archivo Excel si no se especifica
     if not args.archivo:
         excels = sorted(BASE_DIR.glob("CORTE_VENTAS_*.xlsx"), reverse=True)
         if not excels:
-            _logger.error("❌ No se encontró CORTE_VENTAS_*.xlsx")
+            _logger.error("[ERROR] No se encontró CORTE_VENTAS_*.xlsx")
             return
         args.archivo = str(excels[0])
         _logger.info(f"📁 Usando: {args.archivo}")
 
     # Validar que existe
     if not Path(args.archivo).exists():
-        _logger.error(f"❌ Archivo no encontrado: {args.archivo}")
+        _logger.error(f"[ERROR] Archivo no encontrado: {args.archivo}")
         return
 
     # Capturar tablas
     _logger.info(f"\n{'='*70}")
-    _logger.info(f"📸 CAPTURANDO CORTE {args.hora:02d}:00")
+    _logger.info(f"[CAPTURE] CAPTURANDO CORTE {args.hora:02d}:00")
     _logger.info(f"{'='*70}\n")
 
     imagenes = capturar_tablas(args.archivo, args.hora)
 
     if not imagenes['exito']:
-        _logger.error("❌ Fallo en captura")
+        _logger.error("[ERROR] Fallo en captura")
         return
 
     if args.solo_imagenes:
-        _logger.info("✅ Imágenes capturadas (--solo-imagenes activo)")
+        _logger.info("[OK] Imágenes capturadas (--solo-imagenes activo)")
         return
 
     # Enviar a WhatsApp
     _logger.info(f"\n{'='*70}")
-    _logger.info(f"📤 ENVIANDO A WHATSAPP")
+    _logger.info(f"[SEND] ENVIANDO A WHATSAPP")
     _logger.info(f"{'='*70}\n")
 
     config = cargar_config()
 
     if enviar_corte_whatsapp(imagenes, args.destino, args.hora, config):
-        _logger.info(f"\n✅ CORTE {args.hora:02d}:00 COMPLETADO")
+        _logger.info(f"\n[OK] CORTE {args.hora:02d}:00 COMPLETADO")
     else:
-        _logger.error(f"\n❌ Fallo enviando corte")
+        _logger.error(f"\n[ERROR] Fallo enviando corte")
 
 
 if __name__ == "__main__":
