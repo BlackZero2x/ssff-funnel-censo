@@ -149,8 +149,8 @@ def capturar_tablas(archivo_excel: str, hora: int) -> dict:
         hoja_cv = libro.sheets['CORTE VENTAS']
         tablas_cv = [
             ('general',    'A2:H8'),
-            ('zonal',      'K2:U15'),   # hasta fila TOTAL (8 zonas + TOTAL = fila 14/15)
-            ('supervisor', 'X2:AH16'),  # hasta fila TOTAL (9 supervisores + TOTAL)
+            ('zonal',      'K2:U14'),   # Hasta columna U, hasta fila TOTAL
+            ('supervisor', 'X2:AH15'),  # X2:AH15 - tabla SUPERVISOR con todos los supervisores + TOTAL
         ]
         for nombre, rango in tablas_cv:
             ruta_png = IMAGENES_DIR / f'{nombre.upper()}_{etiqueta_hora}_{timestamp}.png'
@@ -272,6 +272,103 @@ def enviar_corte_whatsapp(imagenes: dict, destino: str, hora: int, config: dict)
         return False
 
 
+def enviar_mensaje_cuota_diaria(destino: str, config: dict) -> bool:
+    """Envía mensaje de cuota del día después de enviar todas las capturas.
+    Calcula cuota_dia = (Cuota_Junio - Avance_Hasta_Ayer) / Dias_Habiles_Restantes"""
+    try:
+        import pandas as pd
+        import pyodbc
+        import os
+        from datetime import date, timedelta
+
+        destinos = config.get('cortes_horarios', {}).get('destinos', {})
+        numero_destino = destinos.get(destino)
+
+        if not numero_destino:
+            _logger.error(f"[ERROR] Destino '{destino}' no configurado para cuota")
+            return False
+
+        hoy = date.today()
+        ayer = hoy - timedelta(days=1)
+
+        # 1. Cargar cuota total de junio desde CuotaJunioV2.xlsx (columna 'Nueva Cuota')
+        cuota_path = "C:/proyectos/SSFF/files/CuotaJunioV2.xlsx"
+        df = pd.read_excel(cuota_path, dtype={'RUTA': str})
+        cuota_junio = df['Nueva Cuota'].sum()
+
+        # 2. Obtener avance hasta ayer desde SQL
+        env_path = Path(__file__).parent / ".env"
+        env = {}
+        if env_path.exists():
+            with open(env_path, encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        env[k.strip()] = v.strip()
+
+        conn_str = (
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"SERVER={env.get('SQL_SERVER')};"
+            f"DATABASE={env.get('SQL_DATABASE')};"
+            f"UID={env.get('SQL_USER')};"
+            f"PWD={env.get('SQL_PASSWORD')};"
+            f"TrustServerCertificate=yes;"
+        )
+        conn = pyodbc.connect(conn_str)
+
+        # Query: sumar montos hasta ayer (no incluir hoy)
+        query = f"""
+        SELECT SUM([monto]) AS total FROM [eAuren].[dbo].[base_com]
+        WHERE mes='2606' AND cstatus != 'A'
+        AND CAST(fecha AS DATE) < '{ayer.strftime('%Y-%m-%d')}'
+        """
+        df_avance = pd.read_sql(query, conn)
+        avance_ayer = float(df_avance['total'].iloc[0] or 0.0)
+        conn.close()
+
+        # 3. Calcular días hábiles restantes (lun-sab, sin 29/06 feriado)
+        dias_habiles = []
+        fecha_actual = hoy
+        while fecha_actual <= date(2026, 6, 30):
+            dia_semana = fecha_actual.weekday()
+            if dia_semana < 6 and fecha_actual != date(2026, 6, 29):
+                dias_habiles.append(fecha_actual)
+            fecha_actual += timedelta(days=1)
+
+        dias_habiles_restantes = len(dias_habiles)
+
+        # 4. Calcular cuota_dia
+        numerador = cuota_junio - avance_ayer
+        cuota_dia = numerador / dias_habiles_restantes if dias_habiles_restantes > 0 else 0.0
+
+        # 5. Enviar mensaje
+        mensaje = (
+            f"*Cuota del dia*\n\n"
+            f"La cuota dia de hoy es  S/ {cuota_dia:,.0f}\n\n"
+            f"@51944956042\n"
+            f"@51924876915"
+        )
+
+        wa = WhatsAppClient()
+        mentions = [
+            "51944956042@c.us",  # Jesus Ascencios
+            "51924876915@c.us"   # Mercedes Loaiza
+        ]
+        resultado = wa.send_mention(numero_destino, mensaje, mentions=mentions)
+
+        if resultado.get('success'):
+            _logger.info(f"[OK] Mensaje de cuota enviado: S/ {cuota_dia:,.0f}")
+            return True
+        else:
+            _logger.error(f"[ERROR] Fallo al enviar cuota: {resultado.get('error')}")
+            return False
+
+    except Exception as e:
+        _logger.error(f"[ERROR] Error enviando cuota: {e}")
+        return False
+
+
 def enviar_alerta_tecnica(destino: str, hora: int, config: dict, motivo: str = "") -> bool:
     """Envía mensaje de texto cuando no se pueden generar las capturas."""
     etiqueta_hora = HORA_LBL.get(hora, f"{hora}H")
@@ -364,6 +461,13 @@ def main():
 
     if enviar_corte_whatsapp(imagenes, args.destino, args.hora, config):
         _logger.info(f"\n[OK] CORTE {args.hora:02d}:00 COMPLETADO")
+
+        # Enviar cuota del día solo en el corte de 8AM (primera ejecución)
+        if args.hora == 8:
+            _logger.info(f"\n{'='*70}")
+            _logger.info(f"[CUOTA] ENVIANDO RESUMEN DE CUOTA DEL DÍA")
+            _logger.info(f"{'='*70}\n")
+            enviar_mensaje_cuota_diaria(args.destino, config)
     else:
         _logger.error(f"\n[ERROR] Fallo enviando corte")
 
