@@ -151,29 +151,57 @@ def cargar_mapa_zonas() -> pd.Series:
     return mapa
 
 
-def cargar_cuota_supervisor() -> dict:
-    """Carga cuota diaria por supervisor desde CuotaJunioV2.xlsx.
+def calcular_cuota_supervisor(cuota_vend: dict, ruta_por_vendedor: dict) -> dict:
+    """Calcula cuota por supervisor como suma de vendedores.
 
-    Flujo:
-    1. Lee CuotaJunioV2.xlsx (RUTA → CUOTA_DIA)
-    2. Lee TABLAS_RUTAS.xlsx (RUTA → SUPERVISOR)
-    3. Suma CUOTA_DIA por SUPERVISOR
+    Esto asegura que SUPERVISOR sea suma de sus VENDEDORES (granularidad).
+
+    Args:
+        cuota_vend: {RUTA: cuota_dia} desde calcular_cuota_dia_vendedor()
+        ruta_por_vendedor: {VENDEDOR: [rutas]}
 
     Retorna: {supervisor: cuota_dia_total}
     """
-    df_cuota = pd.read_excel(CUOTA_PATH, dtype={'RUTA': str})
     df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
 
-    # Merge: RUTA → CUOTA_DIA + SUPERVISOR
-    df_merge = df_cuota[['RUTA', 'CUOTA_DIA']].merge(
-        df_rutas[['RUTA', 'SUPERVISOR']],
-        on='RUTA',
-        how='left'
-    )
+    # Crear mapeo VENDEDOR → SUPERVISOR
+    vend_sup = df_rutas[['VENDEDOR', 'SUPERVISOR']].drop_duplicates().set_index('VENDEDOR')['SUPERVISOR'].to_dict()
 
-    # Agrupar por SUPERVISOR y sumar
-    cuota_sup = df_merge.groupby('SUPERVISOR')['CUOTA_DIA'].sum().to_dict()
+    # Sumar cuota por vendedor, luego agrupar por supervisor
+    cuota_vendedor = {}
+    for vendedor, rutas in ruta_por_vendedor.items():
+        cuota_vendedor[vendedor] = sum(cuota_vend.get(rt, 0.0) for rt in rutas)
+
+    # Agrupar vendedor → supervisor
+    cuota_sup = {}
+    for vendedor, cuota in cuota_vendedor.items():
+        supervisor = vend_sup.get(vendedor, 'SIN ASIGNAR')
+        cuota_sup[supervisor] = cuota_sup.get(supervisor, 0.0) + cuota
+
     return cuota_sup
+
+
+def calcular_cuota_zonal(cuota_vend: dict, ruta_por_vendedor: dict) -> dict:
+    """Calcula cuota por ZONAL sumando desde cuota_vend.
+
+    Args:
+        cuota_vend: {RUTA: cuota_dia} desde calcular_cuota_dia_vendedor()
+        ruta_por_vendedor: {VENDEDOR: [rutas]}
+
+    Retorna: {zonal: cuota_dia_total}
+    """
+    df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+
+    # Crear mapeo RUTA → ZONA2
+    ruta_zona = df_rutas.set_index('RUTA')['ZONA2'].to_dict()
+
+    # Sumar cuota por ZONA2
+    cuota_zonal = {}
+    for ruta, cuota_dia in cuota_vend.items():
+        zona = ruta_zona.get(ruta, '(sin zona)')
+        cuota_zonal[zona] = cuota_zonal.get(zona, 0.0) + cuota_dia
+
+    return cuota_zonal
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -376,20 +404,21 @@ def escribir_general(ws, datos, fechas, nombre_dia, hora_lbl):
 
 def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_font,
                        data_fill, etiqueta_col, filas, datos, fechas, nombre_dia,
-                       hora_lbl, n_filas_fijo, cuota_sup=None):
+                       hora_lbl, n_filas_fijo, cuota_sup=None, cuota_zonal=None):
     """Genérico para ZONAL (col0=11/K) y SUPERVISOR (col0=24/X).
-    Para SUPERVISOR: agrega columnas Cuota_Día y %Avance, SOLO % en difs.
+    Para SUPERVISOR y ZONAL: agrega columnas Cuota_Día y %Avance.
     datos: dict {fila_label: {'d14':(ped,sol),'d7':(..),'d':(..)}}."""
     c = col0
     L = get_column_letter
 
-    # Para SUPERVISOR: estructura incluye Cuota_Día (AE) y %Avance (AF)
+    # Estructuras: SUPERVISOR y ZONAL ahora ambas tienen Cuota_Día y %Avance
     es_supervisor = (etiqueta_col == 'Supervisor')
+    es_zonal = (etiqueta_col == 'ZONAL')
 
-    if es_supervisor:
-        # [X][Y Z][AA AB][AC AD][AE AF][AG AH]
+    if es_supervisor or es_zonal:
+        # [X][Y Z][AA AB][AC AD][AE AF][AG AH] (SUPERVISOR)
+        # [K][L M][N O][P Q][R S][T U] (ZONAL con cuota)
         # Label, P14 S14, P7 S7, Pd Sd, Cuota %Avance, %Dif7, %Dif14
-        # IMPORTANTE: SOLO columnas de % en diferencias (sin Diferencia numérica)
         c_lbl = c
         c_p14, c_s14 = c+1, c+2
         c_p7,  c_s7  = c+3, c+4
@@ -399,8 +428,7 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         c_pct7 = c+9      # SOLO % para [D-7] vs [D]
         c_pct14 = c+10    # SOLO % para [D-14] vs [D]
     else:
-        # ZONAL: [K][L M][N O][P Q][R S][T U]
-        # Label, P14 S14, P7 S7, Pd Sd, Dif7 %7, Dif14 %14
+        # Caso no usado actualmente
         c_lbl = c
         c_p14, c_s14 = c+1, c+2
         c_p7,  c_s7  = c+3, c+4
@@ -426,31 +454,24 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         ws.merge_cells(start_row=4, start_column=cc, end_row=4, end_column=cc+1)
         _set(ws, 4, cc, txt, font=fnt(italic=True, size=10), fill=fill(hdr_color), align=aln())
 
-    # Para SUPERVISOR: agregar "Seguimiento del día" (merge AE4:AF4)
-    # SIN fill, font color verde (006C50, mismo que dif_color)
-    if es_supervisor:
+    # Para SUPERVISOR y ZONAL: agregar "Seguimiento del día" (merge AE4:AF4 o R4:S4)
+    if es_supervisor or es_zonal:
         ws.merge_cells(start_row=4, start_column=c_cuota, end_row=4, end_column=c_pct_avance)
+        # Color de texto: verde para SUPERVISOR, marino para ZONAL
+        color_texto = '006C50' if es_supervisor else '1F3864'
         _set(ws, 4, c_cuota, 'Seguimiento del día',
-             font=fnt(bold=True, italic=True, size=10, color='006C50'),
+             font=fnt(bold=True, italic=True, size=10, color=color_texto),
              fill=fill('FFFFFF'), align=aln())
-        # % Diferencia: merge AG4:AH4, SIN fill, font verde
+        # % Diferencia: merge AG4:AH4 (SUPERVISOR) o T4:U4 (ZONAL), SIN fill
         ws.merge_cells(start_row=4, start_column=c_pct7, end_row=4, end_column=c_pct14)
         _set(ws, 4, c_pct7, '% Diferencia',
-             font=fnt(bold=True, italic=True, size=10, color='006C50'),
+             font=fnt(bold=True, italic=True, size=10, color=color_texto),
              fill=fill('FFFFFF'), align=aln())
-    else:
-        # ZONAL: bandas de diferencia con color
-        ws.merge_cells(start_row=4, start_column=c_dif7, end_row=4, end_column=c_pct7)
-        _set(ws, 4, c_dif7, '[D-7] vs. [D]', font=fnt(italic=True, size=10, color=dif_font),
-             fill=fill(dif_color), align=aln())
-        ws.merge_cells(start_row=4, start_column=c_dif14, end_row=4, end_column=c_pct14)
-        _set(ws, 4, c_dif14, '[D-14] vs. [D]', font=fnt(italic=True, size=10, color=dif_font),
-             fill=fill(dif_color), align=aln())
 
     # Fila 5: encabezados
-    if es_supervisor:
-        # SUPERVISOR: SOLO % en diferencias, sin columnas "Diferencia" numérica
-        headers = [(c_lbl, 'Supervisor'), (c_p14, 'Pedidos'), (c_s14, 'Soles'),
+    if es_supervisor or es_zonal:
+        # SUPERVISOR y ZONAL: SOLO % en diferencias, sin columnas "Diferencia" numérica
+        headers = [(c_lbl, 'Supervisor' if es_supervisor else 'ZONAL'), (c_p14, 'Pedidos'), (c_s14, 'Soles'),
                    (c_p7, 'Pedidos'), (c_s7, 'Soles'), (c_pd, 'Pedidos'), (c_sd, 'Soles'),
                    (c_cuota, 'Cuota_Día'), (c_pct_avance, '%Avance'),
                    (c_pct7, '[D-7] vs. [D]'), (c_pct14, '[D-14] vs. [D]')]
@@ -482,13 +503,13 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             cuota_dia = cuota_sup.get(fila_lbl, 0.0)
             _set(ws, r, c_cuota, cuota_dia, font=fnt(), fill=fill(color_fila_cat),
                  align=aln(), fmt=FMT_NUM_SIN_DEC)
-            # %Avance = IFERROR(AD/AE, "-")
+            # %Avance = IFERROR(SD/CUOTA, "-")
             sd_c = L(c_sd)
             cuota_c = L(c_cuota)
             _set(ws, r, c_pct_avance, f'=IFERROR({sd_c}{r}/{cuota_c}{r},"-")',
                  font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
 
-            # AG = IFERROR((AD-AB)/AB,"-")  AH = IFERROR((AD-Z)/Z,"")
+            # %Dif7 = IFERROR((SD-S7)/S7,"-")  %Dif14 = IFERROR((SD-S14)/S14,"")
             s7_c, s14_c = L(c_s7), L(c_s14)
             _set(ws, r, c_pct7,
                  f'=IFERROR(({sd_c}{r}-{s7_c}{r})/{s7_c}{r},"-")',
@@ -496,18 +517,25 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             _set(ws, r, c_pct14,
                  f'=IFERROR(({sd_c}{r}-{s14_c}{r})/{s14_c}{r},"")',
                  font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
-        else:
-            # Para ZONAL: Dif + % en ambas columnas
-            sd_c, s7_c, s14_c = L(c_sd), L(c_s7), L(c_s14)
-            dif7_c, dif14_c = L(c_dif7), L(c_dif14)
-            _set(ws, r, c_dif7, f'=({sd_c}{r}-{s7_c}{r})', font=fnt(), fill=fill(color_fila_cat),
-                 align=aln(), fmt=FMT_DIF_NUM)
-            _set(ws, r, c_pct7, f'=IFERROR({dif7_c}{r}/{s7_c}{r},0)', font=fnt(), fill=fill(color_fila_cat),
-                 align=aln('right'), fmt=FMT_PCT)
-            _set(ws, r, c_dif14, f'=({sd_c}{r}-{s14_c}{r})', font=fnt(), fill=fill(color_fila_cat),
-                 align=aln(), fmt=FMT_DIF_NUM)
-            _set(ws, r, c_pct14, f'=IFERROR({dif14_c}{r}/{s14_c}{r},0)', font=fnt(), fill=fill(color_fila_cat),
-                 align=aln('right'), fmt=FMT_PCT)
+        # Para ZONAL: agregar Cuota_Día y %Avance
+        elif es_zonal and cuota_zonal:
+            cuota_dia = cuota_zonal.get(fila_lbl, 0.0)
+            _set(ws, r, c_cuota, cuota_dia, font=fnt(), fill=fill(color_fila_cat),
+                 align=aln(), fmt=FMT_NUM_SIN_DEC)
+            # %Avance = IFERROR(SD/CUOTA, "-")
+            sd_c = L(c_sd)
+            cuota_c = L(c_cuota)
+            _set(ws, r, c_pct_avance, f'=IFERROR({sd_c}{r}/{cuota_c}{r},"-")',
+                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
+
+            # %Dif7 = IFERROR((SD-S7)/S7,"-")  %Dif14 = IFERROR((SD-S14)/S14,"")
+            s7_c, s14_c = L(c_s7), L(c_s14)
+            _set(ws, r, c_pct7,
+                 f'=IFERROR(({sd_c}{r}-{s7_c}{r})/{s7_c}{r},"-")',
+                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
+            _set(ws, r, c_pct14,
+                 f'=IFERROR(({sd_c}{r}-{s14_c}{r})/{s14_c}{r},"")',
+                 font=fnt(), fill=fill(color_fila_cat), align=aln(), fmt=FMT_PCT)
 
     last_row = 6 + len(filas) - 1
     r_tot = last_row + 1
@@ -521,8 +549,8 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
         _set(ws, r_tot, cc, f'=SUM({col_l}6:{col_l}{last_row})',
              font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
              align=aln(), fmt=FMT_NUM_SIN_DEC, border=brd_all())
-    if es_supervisor:
-        # Cuota total
+    if es_supervisor or es_zonal:
+        # Cuota total (SUPERVISOR y ZONAL)
         cuota_c = L(c_cuota)
         _set(ws, r_tot, c_cuota, f'=SUM({cuota_c}6:{cuota_c}{last_row})',
              font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
@@ -540,25 +568,7 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
              font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
              align=aln(), fmt=FMT_PCT, border=brd_all())
         _set(ws, r_tot, c_pct14,
-             f'=IFERROR(({sd_c}{r_tot}-{s14_c}{r_tot})/{s14_c}{r_tot},"-")',
-             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
-             align=aln(), fmt=FMT_PCT, border=brd_all())
-    else:
-        # ZONAL: Dif7 + %Dif7 y Dif14 + %Dif14 totales
-        sd_c, s7_c, s14_c = L(c_sd), L(c_s7), L(c_s14)
-        dif7_c, dif14_c = L(c_dif7), L(c_dif14)
-        _set(ws, r_tot, c_dif7, f'=SUM({dif7_c}6:{dif7_c}{last_row})',
-             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
-             align=aln(), fmt=FMT_DIF_NUM, border=brd_all())
-        _set(ws, r_tot, c_pct7,
-             f'=IFERROR({dif7_c}{r_tot}/{s7_c}{r_tot},0)',
-             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
-             align=aln(), fmt=FMT_PCT, border=brd_all())
-        _set(ws, r_tot, c_dif14, f'=SUM({dif14_c}6:{dif14_c}{last_row})',
-             font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
-             align=aln(), fmt=FMT_DIF_NUM, border=brd_all())
-        _set(ws, r_tot, c_pct14,
-             f'=IFERROR({dif14_c}{r_tot}/{s14_c}{r_tot},0)',
+             f'=IFERROR(({sd_c}{r_tot}-{s14_c}{r_tot})/{s14_c}{r_tot},"")',
              font=fnt(bold=True, color=C_BLANCO), fill=fill(tit_color),
              align=aln(), fmt=FMT_PCT, border=brd_all())
 
@@ -567,8 +577,8 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
     ws.conditional_formatting.add(f'{L(c_pct14)}6:{L(c_pct14)}{r_tot}', _icon_rule())
 
     # APLICAR BORDES ESPECÍFICOS (r_tot incluye la fila TOTAL)
-    if es_supervisor:
-        # 1) X5:AH5 — outside border en fila encabezado
+    if es_supervisor or es_zonal:
+        # 1) Encabezado — outside border
         for cc in range(c_lbl, c_pct14 + 1):
             _apply_border(ws.cell(5, cc), left=True, right=True, top=True, bottom=True)
         # 2) left border en columna etiqueta (filas de datos + TOTAL)
@@ -581,41 +591,19 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
             _apply_border(ws.cell(rr, c_sd),         right=True)
             _apply_border(ws.cell(rr, c_pct_avance), right=True)
             _apply_border(ws.cell(rr, c_pct14),      right=True)
-        # 4) right border en columna label filas 4..r_tot (X3 sin borde)
+        # 4) right border en columna label filas 4..r_tot
         for rr in range(4, r_tot + 1):
             _apply_border(ws.cell(rr, c_lbl), right=True)
-    else:
-        # 1) K5:U5 — outside border en fila encabezado
-        for cc in range(c_lbl, c_pct14 + 1):
-            _apply_border(ws.cell(5, cc), left=True, right=True, top=True, bottom=True)
-        # 2) left border en columna etiqueta (filas de datos + TOTAL)
-        for rr in range(6, r_tot + 1):
-            _apply_border(ws.cell(rr, c_lbl), left=True)
-        # 3) Right borders en columnas de cierre de par, filas 4..r_tot
-        right_border_cols = [c_lbl, c_s14, c_s7, c_sd, c_pct7, c_pct14]
-        for cc in right_border_cols:
-            for rr in range(4, r_tot + 1):
-                _apply_border(ws.cell(rr, cc), right=True)
 
-    # Anchos
-    if es_supervisor:
-        # SUPERVISOR: [X][Y Z][AA AB][AC AD][AE AF][AG AH]
-        ws.column_dimensions[L(c_lbl)].width = 21.71
+    # Anchos (SUPERVISOR y ZONAL comparten estructura de columnas)
+    if es_supervisor or es_zonal:
+        ws.column_dimensions[L(c_lbl)].width = 21.71 if es_supervisor else 16.0
         for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
             ws.column_dimensions[L(cc)].width = 9.71
         ws.column_dimensions[L(c_cuota)].width = 11.0
         ws.column_dimensions[L(c_pct_avance)].width = 9.0
         ws.column_dimensions[L(c_pct7)].width = 14.0
         ws.column_dimensions[L(c_pct14)].width = 14.0
-    else:
-        # ZONAL
-        ws.column_dimensions[L(c_lbl)].width = 16.0           # cambio: 13.0 → 16.0
-        for cc in (c_p14, c_s14, c_p7, c_s7, c_pd, c_sd):
-            ws.column_dimensions[L(cc)].width = 9.71
-        ws.column_dimensions[L(c_dif7)].width = 14.0
-        ws.column_dimensions[L(c_pct7)].width = 9.0
-        ws.column_dimensions[L(c_dif14)].width = 14.0
-        ws.column_dimensions[L(c_pct14)].width = 9.0
 
 
 # ── HOJA VENDEDOR ───────────────────────────────────────────────────────────────
@@ -687,12 +675,19 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     ws_v.column_dimensions[L(COL_DIF7)].width  = 14.0
     ws_v.column_dimensions[L(COL_DIF14)].width = 14.0
 
-    supervisores = sorted(datos_sup_vend.keys())
+    # Obtener todos los supervisores y vendedores del maestro TABLAS_RUTAS
+    df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    vendedores_por_sup_maestro = (df_rutas.groupby('SUPERVISOR')['VENDEDOR']
+                                  .apply(lambda x: sorted(x.unique()))
+                                  .to_dict())
+
+    supervisores = sorted(vendedores_por_sup_maestro.keys())
     fila_inicio = 1   # fila donde empieza la primera tabla
 
     for sup in supervisores:
         datos_sup = datos_sup_vend.get(sup, {})
-        vendedores = sorted(datos_sup.keys())
+        # Usar TODOS los vendedores del supervisor, aunque no tengan ventas
+        vendedores = vendedores_por_sup_maestro.get(sup, [])
         n_vend = len(vendedores)
 
         r0 = fila_inicio           # fila 1: título
@@ -988,11 +983,15 @@ Ejemplos:
     print('\n[3] Agregando indicadores...')
     g_general = agregar_general(dfs['d14'], dfs['d7'], dfs['d'])
     g_zonal   = agregar_por_columna(dfs['d14'], dfs['d7'], dfs['d'], 'ZONA2', ZONAS_ORDEN)
-    sup_orden = sorted(set(dfs['d14']['supervisor'].dropna()) |
-                       set(dfs['d7']['supervisor'].dropna()) |
-                       set(dfs['d']['supervisor'].dropna()))
+    # Incluir TODOS los supervisores del maestro + los que tienen ventas
+    # (igual como se hace con vendedores en la hoja VENDEDOR)
+    df_rutas_maestro = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    sup_maestro = set(df_rutas_maestro['SUPERVISOR'].dropna().unique())
+    sup_con_ventas = (set(dfs['d14']['supervisor'].dropna()) |
+                      set(dfs['d7']['supervisor'].dropna()) |
+                      set(dfs['d']['supervisor'].dropna()))
+    sup_orden = sorted(sup_maestro | sup_con_ventas)
     g_super = agregar_por_columna(dfs['d14'], dfs['d7'], dfs['d'], 'supervisor', sup_orden)
-    cuota_sup = cargar_cuota_supervisor()
 
     # Datos para hoja VENDEDOR
     print('   Enriqueciendo con vendedor...')
@@ -1008,6 +1007,11 @@ Ejemplos:
     ruta_por_vendedor = (df_rutas_raw.groupby('VENDEDOR')['RUTA']
                          .apply(list).to_dict())
 
+    # Cuota SUPERVISOR = suma de vendedores (para match con granularidad VENDEDOR)
+    cuota_sup = calcular_cuota_supervisor(cuota_vend, ruta_por_vendedor)
+    # Cuota ZONAL = suma por zona
+    cuota_zonal = calcular_cuota_zonal(cuota_vend, ruta_por_vendedor)
+
     print('\n[4] Generando Excel...')
     wb = Workbook()
     ws = wb.active
@@ -1017,10 +1021,10 @@ Ejemplos:
     escribir_general(ws, g_general, fechas, nombre_dia, hora_lbl)
     escribir_categoria(ws, 11, 'RESUMEN POR ZONAL/ORIGEN', C_TIT_ZON, C_HDR_ZON,
                        C_DIF_ZON, C_BLANCO, C_DATA_ZS, 'ZONAL', ZONAS_ORDEN,
-                       g_zonal, fechas, nombre_dia, hora_lbl, 7, cuota_sup=None)
+                       g_zonal, fechas, nombre_dia, hora_lbl, 7, cuota_sup=None, cuota_zonal=cuota_zonal)
     escribir_categoria(ws, 24, 'RESUMEN POR SUPERVISOR', C_TIT_SUP, C_HDR_SUP,
                        C_DIF_SUP, C_BLANCO, C_DATA_ZS, 'Supervisor', sup_orden,
-                       g_super, fechas, nombre_dia, hora_lbl, len(sup_orden), cuota_sup=cuota_sup)
+                       g_super, fechas, nombre_dia, hora_lbl, len(sup_orden), cuota_sup=cuota_sup, cuota_zonal=None)
 
     # Hoja VENDEDOR
     ws_v = wb.create_sheet(title='VENDEDOR')
