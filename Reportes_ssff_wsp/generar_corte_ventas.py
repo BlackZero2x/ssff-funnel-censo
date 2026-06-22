@@ -826,14 +826,14 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
                  font=fnt(), fill=fill(color_f), align=aln(), fmt=FMT_PCT,
                  border=brd(right=True))
 
-            # %Dif [D-7] y [D-14]
+            # %Dif [D-7] y [D-14] — con damero
             s7_c, s14_c = L(COL_S7), L(COL_S14)
             _set(ws_v, r, COL_DIF7,
                  f'=IFERROR(({sd_c}{r}-{s7_c}{r})/{s7_c}{r},"-")',
-                 font=fnt(), fill=fill(C_VEN_TIT), align=aln(), fmt=FMT_PCT)
+                 font=fnt(), fill=fill(color_f), align=aln(), fmt=FMT_PCT)
             _set(ws_v, r, COL_DIF14,
                  f'=IFERROR(({sd_c}{r}-{s14_c}{r})/{s14_c}{r},"-")',
-                 font=fnt(), fill=fill(C_VEN_TIT), align=aln(),fmt=FMT_PCT,
+                 font=fnt(), fill=fill(color_f), align=aln(),fmt=FMT_PCT,
                  border=brd(right=True))
 
             # 1er. Ped. y Últ. Ped. (solo para la fecha actual 'd') — con damero
