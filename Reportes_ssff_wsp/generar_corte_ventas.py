@@ -776,12 +776,13 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
             (COL_H1ER,  '1er. Ped.'), (COL_HULT, 'Últ. Ped.'),
         ]
         for cc, txt in headers4:
-            _set(ws_v, r4, cc, txt,
-                 font=fnt(bold=True), align=aln(), border=brd_all())
-        # J4 y K4: rellenar con morado (sin texto)
-        for cc in (COL_DIF7, COL_DIF14):
-            _set(ws_v, r4, cc, None,
-                 font=fnt(bold=True), fill=fill(C_VEN_TIT), align=aln(), border=brd_all())
+            # J4 y K4: encabezados con fondo blanco
+            if cc in (COL_DIF7, COL_DIF14):
+                _set(ws_v, r4, cc, txt,
+                     font=fnt(bold=True), fill=fill(C_BLANCO), align=aln(), border=brd_all())
+            else:
+                _set(ws_v, r4, cc, txt,
+                     font=fnt(bold=True), align=aln(), border=brd_all())
 
         # ── Filas de datos
         for i, vend in enumerate(vendedores):
