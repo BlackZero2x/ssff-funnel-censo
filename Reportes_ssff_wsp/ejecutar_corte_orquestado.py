@@ -102,7 +102,15 @@ def detectar_datos_cero(hora: int, logger) -> bool:
 
 
 def ejecutar_con_reintentos(cmd, logger, max_reintentos=3, timeout=None, es_generar=False):
-    """Ejecuta comando con reintentos automáticos."""
+    """Ejecuta comando con reintentos automáticos.
+
+    Para datos en cero (es_generar=True):
+      - Primer cero: Espera 15 min, reintenta una sola vez
+      - Si sigue siendo cero: ABORT + alerta técnica
+    """
+    intentos_cero = 0
+    max_intentos_cero = 1  # Solo 1 reintento por datos en cero
+
     for intento in range(1, max_reintentos + 1):
         logger.info(f"[Intento {intento}/{max_reintentos}] {cmd[1].split('/')[-1]}...")
 
@@ -120,11 +128,26 @@ def ejecutar_con_reintentos(cmd, logger, max_reintentos=3, timeout=None, es_gene
 
             if es_generar and resultado.returncode == 0:
                 if not detectar_datos_cero(int(cmd[cmd.index("--hora") + 1]), logger):
+                    # Datos en cero detectados
+                    intentos_cero += 1
+
+                    if intentos_cero > max_intentos_cero:
+                        # Ya reintentamos una vez y SIGUE siendo cero
+                        logger.error(f"\n[CRÍTICO] DATOS EN CERO PERSISTENTES")
+                        logger.error(f"   Intento 1: Ceros")
+                        logger.error(f"   Espera: 15 minutos")
+                        logger.error(f"   Intento 2: SIGUE SIENDO CEROS")
+                        logger.error(f"   → Aborting: Contactar a Data Engineer")
+                        return False, -2  # Código especial: -2 = ceros persistentes
+
+                    # Primer cero: esperar y reintentar
+                    logger.warning(f"[ALERTA] Datos en cero. Esperando 15 minutos antes de reintentar...")
+                    logger.warning(f"   Si sigue siendo cero, se abortará (requiere intervención manual)")
                     time.sleep(ESPERA_DATOS_CERO)
                     continue
 
             if resultado.returncode == 0:
-                logger.info(f"[OK] Intento {intento} exitoso")
+                logger.info(f"[OK] Intento {intento} exitoso ✓")
                 return True, resultado.returncode
 
             if intento < max_reintentos:
@@ -180,8 +203,16 @@ def main():
     )
 
     if not exito_generar:
-        logger.error(f"\n[FATAL] No se pudo generar Excel")
-        sys.exit(1)
+        if cod_gen == -2:
+            # Datos en cero persistentes
+            logger.error(f"\n[CRÍTICO] DATOS EN CERO PERSISTENTES")
+            logger.error(f"   El Data Center posiblemente está con problema serio")
+            logger.error(f"   O es horario sin ventas (madrugada/fin de día)")
+            logger.error(f"   Requiere revisión manual del Data Engineer")
+            sys.exit(2)  # Exit code diferente para alertas
+        else:
+            logger.error(f"\n[FATAL] No se pudo generar Excel")
+            sys.exit(1)
 
     logger.info(f"[OK] Excel generado")
 
