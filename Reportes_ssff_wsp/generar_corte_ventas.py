@@ -716,22 +716,22 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         r_data_fin = r_data_ini + n_vend - 1
         r_tot = r_data_fin + 1
 
-        # ── Fila 1: título supervisor + Corte/hora
+        # ── Fila 1: título supervisor + Corte/hora (movido a L1:M1)
         for cc in range(COL_LBL, COL_DIF7):  # A..I → color supervisor
             _set(ws_v, r0, cc,
                  sup if cc == COL_LBL else None,
                  font=fnt(bold=True, italic=True, size=13, color=C_BLANCO),
                  fill=fill(C_VEN_TIT),
                  align=aln('left') if cc == COL_LBL else aln())
-        # Corte en J y K
-        _set(ws_v, r0, COL_DIF7,  'Corte',
-             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
-        _set(ws_v, r0, COL_DIF14, hora_lbl,
-             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
-        # L y M vacías (blanco puro, sin cambio)
-        for cc in (COL_H1ER, COL_HULT):
+        # J y K: morado oscuro #403151 (hueco donde estaban Corte/Hora)
+        for cc in (COL_DIF7, COL_DIF14):
             _set(ws_v, r0, cc, None,
-                 fill=fill(C_BLANCO), align=aln())
+                 fill=fill(C_VEN_TIT), align=aln())
+        # L y M: Corte y Hora (color amarillo suave)
+        _set(ws_v, r0, COL_H1ER,  'Corte',
+             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
+        _set(ws_v, r0, COL_HULT, hora_lbl,
+             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
 
         # ── Fila 2: vacía (separación visual)
         # (sin contenido)
@@ -761,6 +761,9 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         _set(ws_v, r3, COL_H1ER, 'Hora de:',
              font=fnt(bold=True, italic=True, size=10, color=C_VEN_TIT),
              fill=fill(C_BLANCO), align=aln())
+        # Aplicar bordes a fila 3 en J,K,L,M
+        for cc in (COL_DIF7, COL_DIF14, COL_H1ER, COL_HULT):
+            _apply_border(ws_v.cell(r3, cc), right=True)
 
         # ── Fila 4: encabezados
         headers4 = [
@@ -775,6 +778,10 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         for cc, txt in headers4:
             _set(ws_v, r4, cc, txt,
                  font=fnt(bold=True), align=aln(), border=brd_all())
+        # J4 y K4: rellenar con morado (sin texto)
+        for cc in (COL_DIF7, COL_DIF14):
+            _set(ws_v, r4, cc, None,
+                 font=fnt(bold=True), fill=fill(C_VEN_TIT), align=aln(), border=brd_all())
 
         # ── Filas de datos
         for i, vend in enumerate(vendedores):
@@ -823,17 +830,17 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
             s7_c, s14_c = L(COL_S7), L(COL_S14)
             _set(ws_v, r, COL_DIF7,
                  f'=IFERROR(({sd_c}{r}-{s7_c}{r})/{s7_c}{r},"-")',
-                 font=fnt(), fill=fill(color_f), align=aln(), fmt=FMT_PCT)
+                 font=fnt(), fill=fill(C_VEN_TIT), align=aln(), fmt=FMT_PCT)
             _set(ws_v, r, COL_DIF14,
                  f'=IFERROR(({sd_c}{r}-{s14_c}{r})/{s14_c}{r},"-")',
-                 font=fnt(), fill=fill(color_f), align=aln(),fmt=FMT_PCT,
+                 font=fnt(), fill=fill(C_VEN_TIT), align=aln(),fmt=FMT_PCT,
                  border=brd(right=True))
 
-            # 1er. Ped. y Últ. Ped. (solo para la fecha actual 'd')
+            # 1er. Ped. y Últ. Ped. (solo para la fecha actual 'd') — con damero
             _set(ws_v, r, COL_H1ER, h_primer if h_primer else "-",
-                 font=fnt(), fill=fill(C_BLANCO), align=aln())
+                 font=fnt(), fill=fill(color_f), align=aln())
             _set(ws_v, r, COL_HULT, h_ultimo if h_ultimo else "-",
-                 font=fnt(), fill=fill(C_BLANCO), align=aln())
+                 font=fnt(), fill=fill(color_f), align=aln())
 
         # ── Fila TOTAL
         _set(ws_v, r_tot, COL_LBL, 'TOTAL',
@@ -851,15 +858,16 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
              font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
              align=aln(), fmt=FMT_PCT, border=brd_all())
         s7_c, s14_c = L(COL_S7), L(COL_S14)
+        # J y K en TOTAL: morados
         _set(ws_v, r_tot, COL_DIF7,
              f'=IFERROR(({sd_c}{r_tot}-{s7_c}{r_tot})/{s7_c}{r_tot},"-")',
-             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TIT),
              align=aln(), fmt=FMT_PCT, border=brd_all())
         _set(ws_v, r_tot, COL_DIF14,
              f'=IFERROR(({sd_c}{r_tot}-{s14_c}{r_tot})/{s14_c}{r_tot},"-")',
-             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+             font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TIT),
              align=aln(), fmt=FMT_PCT, border=brd_all())
-        # L y M en TOTAL: vacías (blanco puro)
+        # L y M en TOTAL: vacías (morado)
         for cc in (COL_H1ER, COL_HULT):
             _set(ws_v, r_tot, cc, "-",
                  font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
@@ -871,6 +879,9 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         for rr in range(r3, r_tot + 1):
             for cc in (COL_S14, COL_S7, COL_SD, COL_PCT, COL_DIF14, COL_HULT):
                 _apply_border(ws_v.cell(rr, cc), right=True)
+        # Columna M es el final: agregar right border adicional
+        for rr in range(r3, r_tot + 1):
+            _apply_border(ws_v.cell(rr, COL_HULT), right=True)
 
         # ── Formato condicional iconos en %Dif (datos + TOTAL)
         ws_v.conditional_formatting.add(
