@@ -198,7 +198,7 @@ def capturar_tablas(archivo_excel: str, hora: int) -> dict:
 
 def enviar_corte_whatsapp(imagenes: dict, destino: str, hora: int, config: dict) -> bool:
     """
-    Envía 3 imágenes a WhatsApp con etiqueta "CORTE XAM".
+    Envía 3 imágenes a WhatsApp con etiqueta "CORTE XAM" o "CIERRE DE HOY" (6PM).
 
     Args:
         imagenes: Dict con rutas {'general': ..., 'zonal': ..., 'supervisor': ...}
@@ -214,7 +214,18 @@ def enviar_corte_whatsapp(imagenes: dict, destino: str, hora: int, config: dict)
         return False
 
     etiqueta_hora = HORA_LBL.get(hora, f"{hora}H")
-    msg_titulo = f"CORTE {etiqueta_hora}"
+
+    # A las 6PM (hora 18): mostrar "CIERRE DE HOY - Día dd/mm"
+    if hora == 18:
+        from datetime import datetime
+        DIAS_SEMANA = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves',
+                       4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
+        hoy = datetime.now()
+        nombre_dia = DIAS_SEMANA.get(hoy.weekday(), 'Día')
+        fecha_str = hoy.strftime('%d/%m')
+        msg_titulo = f"CIERRE DE HOY - {nombre_dia} {fecha_str}"
+    else:
+        msg_titulo = f"CORTE {etiqueta_hora}"
 
     try:
         destinos = config.get('cortes_horarios', {}).get('destinos', {})
