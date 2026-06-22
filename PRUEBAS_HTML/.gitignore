@@ -1,0 +1,25 @@
+# Archivos generados
+output/
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.Python
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
