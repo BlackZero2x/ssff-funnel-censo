@@ -22,6 +22,7 @@ import datetime
 import os
 import pickle
 import warnings
+from pathlib import Path
 
 # ── Terceros ───────────────────────────────────────────────────────────────────
 import pandas as pd
@@ -39,6 +40,7 @@ warnings.filterwarnings('ignore')
 
 BASE_DIR    = 'C:/proyectos/SSFF'
 OUT_DIR     = f'{BASE_DIR}/Reportes_ssff_wsp'
+SCRIPT_DIR  = Path(__file__).parent.absolute()
 CACHE_DIR   = f'{OUT_DIR}/cache'
 TABLAS_PATH = f'{BASE_DIR}/TABLAS_RUTAS.xlsx'
 
@@ -1011,6 +1013,19 @@ Ejemplos:
     cuota_sup = calcular_cuota_supervisor(cuota_vend, ruta_por_vendedor)
     # Cuota ZONAL = suma por zona
     cuota_zonal = calcular_cuota_zonal(cuota_vend, ruta_por_vendedor)
+
+    # Validación: Detectar si hay datos en cero (limpieza de BD por data center)
+    soles_total_hoy = dfs['d']['monto'].sum() if len(dfs['d']) > 0 else 0.0
+    if soles_total_hoy == 0:
+        print(f'\n[WARN] DATOS EN CERO detectados')
+        print(f'   Total de soles hoy: S/ {soles_total_hoy:.2f}')
+        print(f'   El Data Center posiblemente está en limpieza de pedidos')
+        print(f'   Se creará flag para reintento automático en 15 minutos')
+        # Crear flag para que ejecutar_corte_orquestado.py lo detecte
+        flag_file = SCRIPT_DIR / f"corte_validacion_{hora_corte}.flag"
+        with open(flag_file, 'w') as f:
+            f.write(f"SOLES_TOTAL:{soles_total_hoy}")
+        print(f'   Flag creado para reintentar a las {datetime.datetime.now() + datetime.timedelta(seconds=900)}')
 
     print('\n[4] Generando Excel...')
     wb = Workbook()
