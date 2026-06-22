@@ -716,18 +716,18 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         r_data_fin = r_data_ini + n_vend - 1
         r_tot = r_data_fin + 1
 
-        # ── Fila 1: título supervisor + Corte/hora (movido a L1:M1)
-        for cc in range(COL_LBL, COL_DIF7):  # A..I → color supervisor
+        # ── Fila 1: título supervisor + Corte/hora (L1:M1 amarillo, J1:K1 morado)
+        for cc in range(COL_LBL, COL_DIF7):  # A..I → color supervisor morado
             _set(ws_v, r0, cc,
                  sup if cc == COL_LBL else None,
                  font=fnt(bold=True, italic=True, size=13, color=C_BLANCO),
                  fill=fill(C_VEN_TIT),
                  align=aln('left') if cc == COL_LBL else aln())
-        # J y K: morado oscuro #403151 (hueco donde estaban Corte/Hora)
+        # J y K: morado oscuro #403151 (hueco)
         for cc in (COL_DIF7, COL_DIF14):
             _set(ws_v, r0, cc, None,
                  fill=fill(C_VEN_TIT), align=aln())
-        # L y M: Corte y Hora (color amarillo suave)
+        # L y M: Corte y Hora (color amarillo #FFFFCC)
         _set(ws_v, r0, COL_H1ER,  'Corte',
              font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
         _set(ws_v, r0, COL_HULT, hora_lbl,
