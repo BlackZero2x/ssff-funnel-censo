@@ -31,6 +31,13 @@ CAPTURAR = SCRIPT_DIR / "capturar_cortes.py"
 LOG_DIR = SCRIPT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
+# Importar módulo de alertas personales
+try:
+    from alertas_personales import AlertasPersonales
+    ALERTAS_DISPONIBLES = True
+except ImportError:
+    ALERTAS_DISPONIBLES = False
+
 # Configuración de reintentos
 REINTENTOS_POR_DEFECTO = 3
 ESPERA_ENTRE_REINTENTOS = 5  # segundos
@@ -190,6 +197,15 @@ def main():
     logger.info(f"[ORQUESTADO] Corte {hora:02d}:00 — Reintentos: {max_reintentos}")
     logger.info(f"{'='*70}")
 
+    # Inicializar alertas personales (solo si están disponibles)
+    alertas = None
+    if ALERTAS_DISPONIBLES:
+        alertas = AlertasPersonales()
+        if alertas.disponible:
+            logger.info(f"[ALERTAS] Activas — Notificaciones a WhatsApp personal")
+        else:
+            logger.warning(f"[ALERTAS] No disponibles (config incompleta)")
+
     # [1] Generar Excel
     logger.info(f"\n[1/2] GENERANDO EXCEL...")
     cmd_generar = [
@@ -209,6 +225,13 @@ def main():
             logger.error(f"   El Data Center posiblemente está con problema serio")
             logger.error(f"   O es horario sin ventas (madrugada/fin de día)")
             logger.error(f"   Requiere revisión manual del Data Engineer")
+
+            # ENVIAR ALERTA A WHATSAPP PERSONAL
+            if alertas and alertas.disponible:
+                logger.info(f"\n[ALERTAS] Enviando notificación a WhatsApp personal...")
+                fecha_str = datetime.now().strftime('%Y-%m-%d')
+                alertas.enviar_alerta_datos_cero(hora=hora, fecha=fecha_str)
+
             sys.exit(2)  # Exit code diferente para alertas
         else:
             logger.error(f"\n[FATAL] No se pudo generar Excel")
@@ -236,6 +259,12 @@ def main():
     logger.info(f"\n{'='*70}")
     logger.info(f"[OK] CORTE {hora:02d}:00 COMPLETADO ✓")
     logger.info(f"{'='*70}\n")
+
+    # OPCIONAL: Enviar alerta de éxito a WhatsApp personal
+    # Descomenta la siguiente línea si deseas recibir notificaciones de éxito
+    # if alertas and alertas.disponible:
+    #     fecha_str = datetime.now().strftime('%Y-%m-%d')
+    #     alertas.enviar_alerta_exito(hora=hora, fecha=fecha_str)
 
 
 if __name__ == "__main__":
