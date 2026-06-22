@@ -69,11 +69,11 @@ def cargar_config() -> dict:
 
 def detectar_rangos_vendedor(archivo_excel: str) -> list:
     """
-    Lee la hoja VENDEDOR con openpyxl y detecta el rango A:K de cada tabla
+    Lee la hoja VENDEDOR con openpyxl y detecta el rango A:M de cada tabla
     de supervisor buscando filas cuya celda A tiene fondo #403151 (título).
 
     Retorna lista de (nombre_supervisor, rango_excel) p.ej.:
-        [("DIANA MADALENGOITIA", "A1:K15"), ("EDWIN VIELMA", "A20:K31"), ...]
+        [("DIANA MADALENGOITIA", "A1:M15"), ("EDWIN VIELMA", "A20:M31"), ...]
     """
     import openpyxl
     try:
@@ -103,7 +103,7 @@ def detectar_rangos_vendedor(archivo_excel: str) -> list:
                         break
                 if fila_fin == fila_ini:
                     fila_fin = i  # tabla vacía, saltar
-                rango = f'A{fila_ini}:K{fila_fin}'
+                rango = f'A{fila_ini}:M{fila_fin}'
                 bloques.append((nombre_sup, rango))
                 i = fila_fin + 1
             else:

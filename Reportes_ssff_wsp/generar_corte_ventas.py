@@ -630,21 +630,34 @@ def cargar_cuota_vendedor() -> dict:
 def agregar_por_sup_vendedor(df_d14, df_d7, df_d):
     """Agrega por (supervisor_rutas, vendedor) para D-14, D-7 y D.
 
-    Retorna: {supervisor: {vendedor: {'d14':(ped,sol),'d7':..,'d':..}}}
+    Retorna: {supervisor: {vendedor: {'d14':(ped,sol,hora_primer,hora_ultimo),'d7':..,'d':..}}}
     """
     resultado = {}
     for etiq, df in [('d14', df_d14), ('d7', df_d7), ('d', df_d)]:
         if df is None or df.empty:
             continue
         grp = (df.groupby(['supervisor_rutas', 'vendedor'])
-                 .agg(pedidos=('monto', 'count'), soles=('monto', 'sum'))
+                 .agg(pedidos=('monto', 'count'),
+                      soles=('monto', 'sum'),
+                      hora_primer=('horaTP', 'min'),
+                      hora_ultimo=('horaTP', 'max'))
                  .reset_index())
         for _, row in grp.iterrows():
             sup  = row['supervisor_rutas']
             vend = row['vendedor']
             resultado.setdefault(sup, {}).setdefault(
-                vend, {'d14': (0, 0.0), 'd7': (0, 0.0), 'd': (0, 0.0)})
-            resultado[sup][vend][etiq] = (int(row['pedidos']), float(row['soles']))
+                vend, {'d14': (0, 0.0, None, None), 'd7': (0, 0.0, None, None), 'd': (0, 0.0, None, None)})
+
+            # Extraer horas como string HH:MM (solo para la fecha actual 'd')
+            hora_p = None
+            hora_u = None
+            if etiq == 'd':
+                if pd.notna(row['hora_primer']):
+                    hora_p = pd.Timestamp(row['hora_primer']).strftime('%H:%M')
+                if pd.notna(row['hora_ultimo']):
+                    hora_u = pd.Timestamp(row['hora_ultimo']).strftime('%H:%M')
+
+            resultado[sup][vend][etiq] = (int(row['pedidos']), float(row['soles']), hora_p, hora_u)
     return resultado
 
 
@@ -654,7 +667,7 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     ws_v.sheet_view.showGridLines = False
     L = get_column_letter
 
-    # Columnas fijas (A..K)
+    # Columnas fijas (A..M)
     COL_LBL  = 1   # A  Vendedor / RUTA
     COL_P14, COL_S14 = 2, 3   # B C
     COL_P7,  COL_S7  = 4, 5   # D E
@@ -663,6 +676,8 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     COL_PCT  = 9              # I  %Avance
     COL_DIF7 = 10             # J  [D-7] vs [D]
     COL_DIF14= 11             # K  [D-14] vs [D]
+    COL_H1ER = 12             # L  1er. Ped.
+    COL_HULT = 13             # M  Últ. Ped.
 
     # Anchos de columna (una sola vez, aplican a toda la hoja)
     ws_v.column_dimensions[L(COL_LBL)].width   = 27.5
@@ -676,6 +691,8 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     ws_v.column_dimensions[L(COL_PCT)].width   = 9.0
     ws_v.column_dimensions[L(COL_DIF7)].width  = 14.0
     ws_v.column_dimensions[L(COL_DIF14)].width = 14.0
+    ws_v.column_dimensions[L(COL_H1ER)].width  = 10.0
+    ws_v.column_dimensions[L(COL_HULT)].width  = 10.0
 
     # Obtener todos los supervisores y vendedores del maestro TABLAS_RUTAS
     df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
@@ -711,6 +728,10 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
              font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
         _set(ws_v, r0, COL_DIF14, hora_lbl,
              font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
+        # L y M vacías (blanco puro, sin cambio)
+        for cc in (COL_H1ER, COL_HULT):
+            _set(ws_v, r0, cc, None,
+                 fill=fill(C_BLANCO), align=aln())
 
         # ── Fila 2: vacía (separación visual)
         # (sin contenido)
@@ -735,6 +756,11 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         _set(ws_v, r3, COL_DIF7, '% Diferencia',
              font=fnt(bold=True, italic=True, size=10, color=C_VEN_TIT),
              fill=fill(C_BLANCO), align=aln())
+        # "Hora de:" — merge L3:M3
+        ws_v.merge_cells(start_row=r3, start_column=COL_H1ER, end_row=r3, end_column=COL_HULT)
+        _set(ws_v, r3, COL_H1ER, 'Hora de:',
+             font=fnt(bold=True, italic=True, size=10, color=C_VEN_TIT),
+             fill=fill(C_BLANCO), align=aln())
 
         # ── Fila 4: encabezados
         headers4 = [
@@ -744,6 +770,7 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
             (COL_PD,    'Pedidos'), (COL_SD,  'Soles'),
             (COL_CUO,   'Cuota_Dia'), (COL_PCT, '%Avance'),
             (COL_DIF7,  '[D-7] vs. [D]'), (COL_DIF14, '[D-14] vs. [D]'),
+            (COL_H1ER,  '1er. Ped.'), (COL_HULT, 'Últ. Ped.'),
         ]
         for cc, txt in headers4:
             _set(ws_v, r4, cc, txt,
@@ -755,10 +782,10 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
             es_par = (r % 2 == 0)
             color_f = C_DATA_ZS if es_par else C_BLANCO
 
-            d = datos_sup.get(vend, {'d14': (0, 0.0), 'd7': (0, 0.0), 'd': (0, 0.0)})
-            p14, s14 = d['d14']
-            p7,  s7  = d['d7']
-            pd_, sd  = d['d']
+            d = datos_sup.get(vend, {'d14': (0, 0.0, None, None), 'd7': (0, 0.0, None, None), 'd': (0, 0.0, None, None)})
+            p14, s14, _, _ = d['d14']
+            p7,  s7,  _, _ = d['d7']
+            pd_, sd, h_primer, h_ultimo  = d['d']
 
             # Concatenar NOMBRE - RUTA (todas las rutas del vendedor para este sup)
             rutas = ruta_por_vendedor.get(vend, [])
@@ -802,6 +829,12 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
                  font=fnt(), fill=fill(color_f), align=aln(),fmt=FMT_PCT,
                  border=brd(right=True))
 
+            # 1er. Ped. y Últ. Ped. (solo para la fecha actual 'd')
+            _set(ws_v, r, COL_H1ER, h_primer if h_primer else "-",
+                 font=fnt(), fill=fill(C_BLANCO), align=aln())
+            _set(ws_v, r, COL_HULT, h_ultimo if h_ultimo else "-",
+                 font=fnt(), fill=fill(C_BLANCO), align=aln())
+
         # ── Fila TOTAL
         _set(ws_v, r_tot, COL_LBL, 'TOTAL',
              font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
@@ -826,12 +859,17 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
              f'=IFERROR(({sd_c}{r_tot}-{s14_c}{r_tot})/{s14_c}{r_tot},"-")',
              font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
              align=aln(), fmt=FMT_PCT, border=brd_all())
+        # L y M en TOTAL: vacías (blanco puro)
+        for cc in (COL_H1ER, COL_HULT):
+            _set(ws_v, r_tot, cc, "-",
+                 font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
+                 align=aln(), border=brd_all())
 
-        # ── Bordes: left/right en columna A, right en C,E,G,I,K (por pares)
+        # ── Bordes: left/right en columna A, right en C,E,G,I,K,M (por pares + final)
         for rr in range(r3, r_tot + 1):
             _apply_border(ws_v.cell(rr, COL_LBL), left=True, right=True)
         for rr in range(r3, r_tot + 1):
-            for cc in (COL_S14, COL_S7, COL_SD, COL_PCT, COL_DIF14):
+            for cc in (COL_S14, COL_S7, COL_SD, COL_PCT, COL_DIF14, COL_HULT):
                 _apply_border(ws_v.cell(rr, cc), right=True)
 
         # ── Formato condicional iconos en %Dif (datos + TOTAL)
