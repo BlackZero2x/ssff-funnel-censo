@@ -667,7 +667,7 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     ws_v.sheet_view.showGridLines = False
     L = get_column_letter
 
-    # Columnas fijas (A..O)
+    # Columnas fijas (A..M)
     COL_LBL  = 1   # A  Vendedor / RUTA
     COL_P14, COL_S14 = 2, 3   # B C
     COL_P7,  COL_S7  = 4, 5   # D E
@@ -678,8 +678,6 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     COL_DIF14= 11             # K  [D-14] vs [D]
     COL_H1ER = 12             # L  1er. Ped.
     COL_HULT = 13             # M  Últ. Ped.
-    COL_CORTE= 14             # N  Corte
-    COL_HORA = 15             # O  Hora (xAM/PM)
 
     # Anchos de columna (una sola vez, aplican a toda la hoja)
     ws_v.column_dimensions[L(COL_LBL)].width   = 27.5
@@ -695,8 +693,6 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     ws_v.column_dimensions[L(COL_DIF14)].width = 14.0
     ws_v.column_dimensions[L(COL_H1ER)].width  = 10.0
     ws_v.column_dimensions[L(COL_HULT)].width  = 10.0
-    ws_v.column_dimensions[L(COL_CORTE)].width = 9.0
-    ws_v.column_dimensions[L(COL_HORA)].width  = 9.0
 
     # Obtener todos los supervisores y vendedores del maestro TABLAS_RUTAS
     df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
@@ -720,22 +716,22 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         r_data_fin = r_data_ini + n_vend - 1
         r_tot = r_data_fin + 1
 
-        # ── Fila 1: título supervisor + Corte/hora (ahora en N y O)
+        # ── Fila 1: título supervisor + Corte/hora
         for cc in range(COL_LBL, COL_DIF7):  # A..I → color supervisor
             _set(ws_v, r0, cc,
                  sup if cc == COL_LBL else None,
                  font=fnt(bold=True, italic=True, size=13, color=C_BLANCO),
                  fill=fill(C_VEN_TIT),
                  align=aln('left') if cc == COL_LBL else aln())
-        # J, K, L, M: color morado #403151
-        for cc in (COL_DIF7, COL_DIF14, COL_H1ER, COL_HULT):
+        # Corte en J y K
+        _set(ws_v, r0, COL_DIF7,  'Corte',
+             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
+        _set(ws_v, r0, COL_DIF14, hora_lbl,
+             font=fnt(bold=True, italic=True, size=12), fill=fill(C_CORTE), align=aln())
+        # L y M vacías (blanco puro, sin cambio)
+        for cc in (COL_H1ER, COL_HULT):
             _set(ws_v, r0, cc, None,
-                 fill=fill(C_VEN_TIT), align=aln())
-        # Corte en N y Hora en O (con color morado)
-        _set(ws_v, r0, COL_CORTE,  'Corte',
-             font=fnt(bold=True, italic=True, size=12), fill=fill(C_VEN_TIT), align=aln())
-        _set(ws_v, r0, COL_HORA, hora_lbl,
-             font=fnt(bold=True, italic=True, size=12), fill=fill(C_VEN_TIT), align=aln())
+                 fill=fill(C_BLANCO), align=aln())
 
         # ── Fila 2: vacía (separación visual)
         # (sin contenido)
@@ -765,10 +761,6 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
         _set(ws_v, r3, COL_H1ER, 'Hora de:',
              font=fnt(bold=True, italic=True, size=10, color=C_VEN_TIT),
              fill=fill(C_BLANCO), align=aln())
-        # N3 y O3: vacías (blanco puro)
-        for cc in (COL_CORTE, COL_HORA):
-            _set(ws_v, r3, cc, None,
-                 fill=fill(C_BLANCO), align=aln())
 
         # ── Fila 4: encabezados
         headers4 = [
@@ -779,7 +771,6 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
             (COL_CUO,   'Cuota_Dia'), (COL_PCT, '%Avance'),
             (COL_DIF7,  '[D-7] vs. [D]'), (COL_DIF14, '[D-14] vs. [D]'),
             (COL_H1ER,  '1er. Ped.'), (COL_HULT, 'Últ. Ped.'),
-            (COL_CORTE, 'Corte'), (COL_HORA, 'Hora'),
         ]
         for cc, txt in headers4:
             _set(ws_v, r4, cc, txt,
@@ -838,16 +829,11 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
                  font=fnt(), fill=fill(color_f), align=aln(),fmt=FMT_PCT,
                  border=brd(right=True))
 
-            # 1er. Ped. y Últ. Ped. (solo para la fecha actual 'd') — con damero
+            # 1er. Ped. y Últ. Ped. (solo para la fecha actual 'd')
             _set(ws_v, r, COL_H1ER, h_primer if h_primer else "-",
-                 font=fnt(), fill=fill(color_f), align=aln())
+                 font=fnt(), fill=fill(C_BLANCO), align=aln())
             _set(ws_v, r, COL_HULT, h_ultimo if h_ultimo else "-",
-                 font=fnt(), fill=fill(color_f), align=aln())
-            # Corte y Hora — con damero
-            _set(ws_v, r, COL_CORTE, 'Corte',
-                 font=fnt(), fill=fill(color_f), align=aln())
-            _set(ws_v, r, COL_HORA, hora_lbl,
-                 font=fnt(), fill=fill(color_f), align=aln())
+                 font=fnt(), fill=fill(C_BLANCO), align=aln())
 
         # ── Fila TOTAL
         _set(ws_v, r_tot, COL_LBL, 'TOTAL',
@@ -878,17 +864,12 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
             _set(ws_v, r_tot, cc, "-",
                  font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TOT),
                  align=aln(), border=brd_all())
-        # N y O en TOTAL: vacías (morado)
-        for cc in (COL_CORTE, COL_HORA):
-            _set(ws_v, r_tot, cc, "-",
-                 font=fnt(bold=True, color=C_BLANCO), fill=fill(C_VEN_TIT),
-                 align=aln(), border=brd_all())
 
-        # ── Bordes: left/right en columna A, right en C,E,G,I,K,M,O (por pares + final)
+        # ── Bordes: left/right en columna A, right en C,E,G,I,K,M (por pares + final)
         for rr in range(r3, r_tot + 1):
             _apply_border(ws_v.cell(rr, COL_LBL), left=True, right=True)
         for rr in range(r3, r_tot + 1):
-            for cc in (COL_S14, COL_S7, COL_SD, COL_PCT, COL_DIF14, COL_HULT, COL_HORA):
+            for cc in (COL_S14, COL_S7, COL_SD, COL_PCT, COL_DIF14, COL_HULT):
                 _apply_border(ws_v.cell(rr, cc), right=True)
 
         # ── Formato condicional iconos en %Dif (datos + TOTAL)
@@ -1107,7 +1088,45 @@ Ejemplos:
     wb.save(out)
     print(f'\n   Guardado: {out}')
 
-    print('\n[5] Archivo generado — envío manual via capturar_cortes.py')
+    # Envío automático a WhatsApp con comportamiento antibang (si no está --solo-excel)
+    if not args.solo_excel:
+        print('\n[5] Enviando reporte a WhatsApp...')
+        try:
+            from wa_sender_antibang import WABangSafeSender
+            import json
+
+            # Cargar configuración
+            config_path = f'{OUT_DIR}/config.json'
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+
+                sender = WABangSafeSender(wa_server_url="http://localhost:8002")
+
+                # Verificar si puede enviar
+                if not sender._puede_enviar():
+                    print('   [WARN]  Cuenta bloqueada, saltando envío')
+                else:
+                    grupo_id = config.get('groups', {}).get('Canal_SSFF_2026_Gestion', '')
+                    if not grupo_id:
+                        print('   [WARN]  ID de grupo no configurado en config.json')
+                    else:
+                        # Mensaje automático
+                        mensaje = f"📊 Corte de Ventas — {nombre_dia} {hoy.strftime('%d/%m/%Y')}\n⏰ Corte: {hora_lbl}\n[OK] Reporte generado"
+
+                        if sender.send_to_group(grupo_id, mensaje, imagen_path=out):
+                            print(f'   [OK] Enviado a Canal SSFF')
+                        else:
+                            print(f'   [ERROR] Error al enviar a WhatsApp')
+            else:
+                print(f'   [WARN]  config.json no encontrado (saltando envío automático)')
+
+        except ImportError:
+            print('   [WARN]  wa_sender_antibang no disponible (saltando envío)')
+        except Exception as e:
+            print(f'   [ERROR] Error en envío: {e}')
+    else:
+        print('\n[5] Omitiendo envío a WhatsApp (--solo-excel activo)')
 
     print('\nProceso completado OK.')
 
