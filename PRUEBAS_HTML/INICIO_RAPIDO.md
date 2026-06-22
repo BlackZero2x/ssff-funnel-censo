@@ -13,14 +13,29 @@
 cd C:\proyectos\SSFF\PRUEBAS_HTML
 ```
 
-### Instalar dependencias
+### Instalar librerías faltantes (con uv)
+
+**Estado actual:** 5/7 librerías ya instaladas en C:\proyectos\.venv
+
+Faltan solo 2:
 
 ```bash
-pip install -r requirements.txt
-playwright install chromium
+uv pip install jinja2 psutil
 ```
 
-✅ **Listo cuando termine sin errores**
+✅ **Listo en ~10 segundos**
+
+### Verificar instalación
+
+```bash
+uv pip list | grep -E "jinja2|psutil"
+```
+
+Deberías ver:
+```
+jinja2                    3.1.2
+psutil                    5.9.5
+```
 
 ---
 
