@@ -20,6 +20,7 @@ Uso:
 import argparse
 import datetime
 import os
+import sys
 import pickle
 import warnings
 from pathlib import Path
@@ -44,6 +45,45 @@ SCRIPT_DIR  = Path(__file__).parent.absolute()
 CACHE_DIR   = f'{OUT_DIR}/cache'
 TABLAS_PATH = f'{BASE_DIR}/TABLAS_RUTAS.xlsx'
 
+# Caché en memoria para TABLAS_RUTAS (se lee una sola vez por proceso)
+_df_rutas_cache: 'pd.DataFrame | None' = None
+
+def _cargar_distribucion_ffvv_sql() -> 'pd.DataFrame':
+    """RUTA → VENDEDOR/SUPERVISOR vigente desde [eAuren].[dbo].[viewSFffvv].
+
+    Esta vista se mantiene actualizada permanentemente por Sistemas (a diferencia
+    de TABLAS_RUTAS.xlsx, que requiere actualización manual mensual y ha quedado
+    desactualizado en el pasado). Se usa para sobrescribir VENDEDOR/SUPERVISOR
+    del maestro Excel, que sigue siendo la fuente de ZONA2/PREFIX_RUTA/etc.
+    """
+    conn = conectar_sql()
+    try:
+        df = pd.read_sql(
+            "SELECT ruta, vendedorCorto, supervisor FROM [eAuren].[dbo].[viewSFffvv]", conn
+        )
+    finally:
+        conn.close()
+    df['ruta'] = df['ruta'].astype(str).str.strip()
+    return df.rename(columns={'ruta': 'RUTA', 'vendedorCorto': 'VENDEDOR', 'supervisor': 'SUPERVISOR'})
+
+
+def _cargar_rutas_maestro() -> 'pd.DataFrame':
+    global _df_rutas_cache
+    if _df_rutas_cache is None:
+        df = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+        df['RUTA'] = df['RUTA'].str.strip()
+
+        df_ffvv = _cargar_distribucion_ffvv_sql()
+        df = df.drop(columns=['VENDEDOR', 'SUPERVISOR']).merge(
+            df_ffvv, on='RUTA', how='left'
+        )
+        faltantes = df[df['VENDEDOR'].isna()]['RUTA'].tolist()
+        if faltantes:
+            print(f"   [WARN] Rutas sin distribución en viewSFffvv (se quedan sin Vendedor/Supervisor): {faltantes}")
+
+        _df_rutas_cache = df
+    return _df_rutas_cache
+
 DIAS_SEMANA = {1: 'Lunes', 2: 'Martes', 3: 'Miércoles',
                4: 'Jueves', 5: 'Viernes', 6: 'Sábado', 7: 'Domingo'}
 
@@ -54,8 +94,6 @@ HORA_LBL = {8: '8AM', 9: '9AM', 10: '10AM', 11: '11AM', 12: '12PM',
 # Orden fijo de zonas (filas K6:K13 del EJEMPLO2)
 ZONAS_ORDEN = ['Lima Este', 'Casco', 'May. SSFF', 'May. SSFF Casco', 'Exclusivo',
                'Casa Reposo', 'Rinti', 'Verdum']
-
-CUOTA_PATH = f'{BASE_DIR}/files/CuotaJunioV2.xlsx'
 
 UMBRAL_ICON = 0.03   # ±3% → zona de alerta (!)
 
@@ -115,10 +153,11 @@ def cargar_preventa_dia(conn, fecha: datetime.date) -> pd.DataFrame:
                  f"'{fecha.strftime('%Y%m%d')}', '{dia_semana}'")
 
     df = pd.read_sql(query, conn)
+    df = df[df['compra'].astype(str).str.upper() == 'S'].copy()
     df = df[df['monto'].notna()].copy()
     df['monto'] = pd.to_numeric(df['monto'], errors='coerce')
     df['horaTP'] = pd.to_datetime(df['horaTP'], errors='coerce')
-    df = df[df['horaTP'].notna() & df['monto'].notna()]
+    df = df[df['monto'].notna()].copy()
     return df[['ruta', 'supervisor', 'monto', 'horaTP']]
 
 
@@ -146,7 +185,7 @@ def cargar_dia_con_cache(conn, fecha: datetime.date, etiqueta: str) -> pd.DataFr
 def cargar_mapa_zonas() -> pd.Series:
     """ruta → ZONA2 desde TABLA_RUTAS (hoja RUTA_ACTUAL).
     V001/V002 (Verdum) no están en maestro → se fuerzan."""
-    df = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df = _cargar_rutas_maestro()
     mapa = df.set_index('RUTA')['ZONA2'].to_dict()
     for r in ('V001', 'V002'):
         mapa.setdefault(r, 'Verdum')
@@ -164,7 +203,7 @@ def calcular_cuota_supervisor(cuota_vend: dict, ruta_por_vendedor: dict) -> dict
 
     Retorna: {supervisor: cuota_dia_total}
     """
-    df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df_rutas = _cargar_rutas_maestro()
 
     # Crear mapeo VENDEDOR → SUPERVISOR
     vend_sup = df_rutas[['VENDEDOR', 'SUPERVISOR']].drop_duplicates().set_index('VENDEDOR')['SUPERVISOR'].to_dict()
@@ -192,7 +231,7 @@ def calcular_cuota_zonal(cuota_vend: dict, ruta_por_vendedor: dict) -> dict:
 
     Retorna: {zonal: cuota_dia_total}
     """
-    df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df_rutas = _cargar_rutas_maestro()
 
     # Crear mapeo RUTA → ZONA2
     ruta_zona = df_rutas.set_index('RUTA')['ZONA2'].to_dict()
@@ -211,16 +250,21 @@ def calcular_cuota_zonal(cuota_vend: dict, ruta_por_vendedor: dict) -> dict:
 # ════════════════════════════════════════════════════════════════════════════════
 
 def agregar_hora_lbl(df: pd.DataFrame) -> pd.DataFrame:
-    """Campo hora_h = clamp(HOUR(horaTP), 8, 18). Madrugada→8, noche→18."""
+    """Mantiene compatibilidad: agrega hora_h como entero (ya no se usa para filtrar)."""
     df = df.copy()
-    h = df['horaTP'].dt.hour.clip(lower=8, upper=18)
-    df['hora_h'] = h
+    df['hora_h'] = df['horaTP'].dt.hour.clip(lower=8, upper=18)
     return df
 
 
 def filtrar_corte(df: pd.DataFrame, hora_corte: int) -> pd.DataFrame:
-    """Acumulado: todos los pedidos con hora_h <= hora_corte."""
-    return df[df['hora_h'] <= hora_corte]
+    """Pedidos hasta las HH:00:00 exactas del corte (igual para hoy, D-7 y D-14).
+    Corte '8AM' → horaTP < 08:00:00, '9AM' → horaTP < 09:00:00, etc.
+    Corte 6PM (18): sin filtro de hora — el sistema cierra ~5:30PM y los datos ya son finales.
+    Solo opera sobre filas con horaTP válida; los sin hora se manejan en el caller."""
+    if hora_corte == 18:
+        return df
+    tope = datetime.time(hora_corte, 0, 0)
+    return df[df['horaTP'].dt.time < tope]
 
 
 def indicadores(serie_monto: pd.Series) -> dict:
@@ -612,19 +656,13 @@ def escribir_categoria(ws, col0, titulo, tit_color, hdr_color, dif_color, dif_fo
 
 def enriquecer_con_vendedor(df: pd.DataFrame) -> pd.DataFrame:
     """Agrega columna 'vendedor' y 'supervisor_rutas' haciendo join con TABLAS_RUTAS."""
-    df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df_rutas = _cargar_rutas_maestro()
     df_rutas = df_rutas[['RUTA', 'VENDEDOR', 'SUPERVISOR']].copy()
     df_rutas.columns = ['ruta', 'vendedor', 'supervisor_rutas']
     df = df.merge(df_rutas, on='ruta', how='left')
     df['vendedor'] = df['vendedor'].fillna('SIN ASIGNAR')
     df['supervisor_rutas'] = df['supervisor_rutas'].fillna(df['supervisor'])
     return df
-
-
-def cargar_cuota_vendedor() -> dict:
-    """{RUTA: cuota_dia} desde CuotaJunioV2.xlsx."""
-    df_c = pd.read_excel(CUOTA_PATH, dtype={'RUTA': str})
-    return df_c.set_index('RUTA')['CUOTA_DIA'].to_dict()
 
 
 def agregar_por_sup_vendedor(df_d14, df_d7, df_d):
@@ -695,7 +733,7 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
     ws_v.column_dimensions[L(COL_HULT)].width  = 10.0
 
     # Obtener todos los supervisores y vendedores del maestro TABLAS_RUTAS
-    df_rutas = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df_rutas = _cargar_rutas_maestro()
     vendedores_por_sup_maestro = (df_rutas.groupby('SUPERVISOR')['VENDEDOR']
                                   .apply(lambda x: sorted(x.unique()))
                                   .to_dict())
@@ -758,7 +796,7 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
              fill=fill(C_BLANCO), align=aln())
         # "Hora de:" — merge L3:M3
         ws_v.merge_cells(start_row=r3, start_column=COL_H1ER, end_row=r3, end_column=COL_HULT)
-        _set(ws_v, r3, COL_H1ER, 'Hora de:',
+        _set(ws_v, r3, COL_H1ER, 'Hora de pedido:',
              font=fnt(bold=True, italic=True, size=10, color=C_VEN_TIT),
              fill=fill(C_BLANCO), align=aln())
         # Aplicar bordes a fila 3 en J,K,L,M
@@ -773,7 +811,7 @@ def escribir_hoja_vendedor(ws_v, datos_sup_vend, cuota_vend,
             (COL_PD,    'Pedidos'), (COL_SD,  'Soles'),
             (COL_CUO,   'Cuota_Dia'), (COL_PCT, '%Avance'),
             (COL_DIF7,  '[D-7] vs. [D]'), (COL_DIF14, '[D-14] vs. [D]'),
-            (COL_H1ER,  '1er. Ped.'), (COL_HULT, 'Últ. Ped.'),
+            (COL_H1ER,  'Primero'), (COL_HULT, 'Último'),
         ]
         for cc, txt in headers4:
             # J4 y K4: encabezados con fondo blanco
@@ -925,6 +963,78 @@ def agregar_por_columna(df_d14, df_d7, df_d, col, orden=None):
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# 5b. MENSAJES DE ALERTA DE REZAGO
+# ════════════════════════════════════════════════════════════════════════════════
+
+UMBRAL_REZAGO = 0.80  # 80%
+SUPERVISORES_EXCLUIDOS_RANKING = {'JESUS ASENCIOS'}  # no aparecen en la alerta canal
+
+def _formatear_top3(bajo_umbral: list, titulo: str, pie: str = '') -> str:
+    """Helper: construye mensaje TOP 3 a partir de entradas ya filtradas.
+    bajo_umbral: lista de (etiqueta, pct) ordenada ascendente."""
+    if not bajo_umbral:
+        return ''
+    top3 = sorted(bajo_umbral, key=lambda x: x[1])[:3]
+    lineas = [f"- {etq} → {pct:.0%}" for etq, pct in top3]
+    msg = titulo + "\n\n" + "\n".join(lineas)
+    return msg + ("\n\n" + pie if pie else '')
+
+
+def _ranking_supervisores(g_super: dict, cuota_sup: dict, hora_corte: int = 0) -> str:
+    """Genera mensaje con TOP 3 supervisores con menor %Avance (solo si < 80%).
+    Retorna string vacío si no hay ninguno bajo el umbral."""
+    sufijo = "del día" if hora_corte == 18 else "hasta este corte"
+    bajo_umbral = []
+    mejor = None  # (etiqueta, pct) con mayor %Avance
+    for sup, datos in g_super.items():
+        if sup.upper() in SUPERVISORES_EXCLUIDOS_RANKING:
+            continue
+        soles_d = datos['d'][1]  # (pedidos, soles)
+        cuota = cuota_sup.get(sup, 0.0)
+        if cuota > 0:
+            pct = soles_d / cuota
+            if mejor is None or pct > mejor[1]:
+                mejor = (sup, pct)
+            if pct < UMBRAL_REZAGO:
+                bajo_umbral.append((sup, pct))
+    pie_mejor = f"🥇 Supervisor con mayor %Avance {sufijo}: {mejor[0]} → {mejor[1]:.0%}" if mejor else ''
+    return _formatear_top3(
+        bajo_umbral,
+        titulo="🚨 Ranking TOP 3 Supervisores con *menor* %Avance en este corte:",
+        pie=pie_mejor,
+    )
+
+
+def _ranking_vendedores(datos_sup_vend: dict, cuota_vend: dict,
+                        ruta_por_vendedor: dict, supervisor: str,
+                        hora_corte: int = 0) -> str:
+    """Genera mensaje con TOP 3 vendedores del supervisor con menor %Avance (solo si < 80%).
+    Retorna string vacío si no hay ninguno bajo el umbral."""
+    sufijo = "del día" if hora_corte == 18 else "hasta este corte"
+    datos_sup = datos_sup_vend.get(supervisor, {})
+    bajo_umbral = []
+    mejor = None  # (etiqueta, pct) con mayor %Avance
+    for vend, periodos in datos_sup.items():
+        _, soles_d, _, _ = periodos.get('d', (0, 0.0, None, None))
+        rutas = ruta_por_vendedor.get(vend, [])
+        cuota = sum(cuota_vend.get(rt, 0.0) for rt in rutas)
+        ruta_lbl = rutas[0] if len(rutas) == 1 else ('/'.join(rutas) if rutas else '')
+        if cuota > 0:
+            pct = soles_d / cuota
+            etq = f"{vend} ({ruta_lbl})"
+            if mejor is None or pct > mejor[1]:
+                mejor = (etq, pct)
+            if pct < UMBRAL_REZAGO:
+                bajo_umbral.append((etq, pct))
+    pie_mejor = f"🥇 Vendedor con mayor %Avance {sufijo}: {mejor[0]} → {mejor[1]:.0%}" if mejor else ''
+    return _formatear_top3(
+        bajo_umbral,
+        titulo="🚨 Ranking TOP 3 Vendedores con *menor* %Avance en este corte:",
+        pie=pie_mejor,
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # 6. MAIN
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -1026,18 +1136,27 @@ Ejemplos:
     print('\n[2] Etiquetando horas y aplicando corte acumulado...')
     dfs = {}
     for nm, df in [('d', df_d), ('d7', df_d7), ('d14', df_d14)]:
-        df = agregar_hora_lbl(df)
-        df = filtrar_corte(df, hora_corte)
+        # Separar pedidos sin hora (editados manualmente) — se suman siempre
+        sin_hora = df[df['horaTP'].isna()].copy()
+        con_hora = df[df['horaTP'].notna()].copy()
+        con_hora = agregar_hora_lbl(con_hora)
+        con_hora = filtrar_corte(con_hora, hora_corte)
+        if not sin_hora.empty:
+            sin_hora['hora_h'] = hora_corte  # asignar hora del corte para compatibilidad
+            df = pd.concat([con_hora, sin_hora], ignore_index=True)
+            print(f"   {nm}: {len(con_hora):,} con hora + {len(sin_hora):,} sin hora = {len(df):,} pedidos")
+        else:
+            df = con_hora
+            print(f"   {nm}: {len(df):,} pedidos hasta {hora_lbl}")
         df['ZONA2'] = df['ruta'].map(mapa_zona).fillna('(sin zona)')
         dfs[nm] = df
-        print(f"   {nm}: {len(df):,} pedidos hasta {hora_lbl}")
 
     print('\n[3] Agregando indicadores...')
     g_general = agregar_general(dfs['d14'], dfs['d7'], dfs['d'])
     g_zonal   = agregar_por_columna(dfs['d14'], dfs['d7'], dfs['d'], 'ZONA2', ZONAS_ORDEN)
     # Incluir TODOS los supervisores del maestro + los que tienen ventas
     # (igual como se hace con vendedores en la hoja VENDEDOR)
-    df_rutas_maestro = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df_rutas_maestro = _cargar_rutas_maestro()
     sup_maestro = set(df_rutas_maestro['SUPERVISOR'].dropna().unique())
     sup_con_ventas = (set(dfs['d14']['supervisor'].dropna()) |
                       set(dfs['d7']['supervisor'].dropna()) |
@@ -1055,7 +1174,7 @@ Ejemplos:
     from generar_cuota_dia import calcular_cuota_dia_vendedor
     cuota_vend = calcular_cuota_dia_vendedor()
     # Mapa vendedor → lista de rutas (para cuota y etiqueta)
-    df_rutas_raw = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
+    df_rutas_raw = _cargar_rutas_maestro()
     ruta_por_vendedor = (df_rutas_raw.groupby('VENDEDOR')['RUTA']
                          .apply(list).to_dict())
 
@@ -1066,16 +1185,15 @@ Ejemplos:
 
     # Validación: Detectar si hay datos en cero (limpieza de BD por data center)
     soles_total_hoy = dfs['d']['monto'].sum() if len(dfs['d']) > 0 else 0.0
-    if soles_total_hoy == 0:
-        print(f'\n[WARN] DATOS EN CERO detectados')
-        print(f'   Total de soles hoy: S/ {soles_total_hoy:.2f}')
-        print(f'   El Data Center posiblemente está en limpieza de pedidos')
-        print(f'   Se creará flag para reintento automático en 15 minutos')
-        # Crear flag para que ejecutar_corte_orquestado.py lo detecte
-        flag_file = SCRIPT_DIR / f"corte_validacion_{hora_corte}.flag"
-        with open(flag_file, 'w') as f:
-            f.write(f"SOLES_TOTAL:{soles_total_hoy}")
-        print(f'   Flag creado para reintentar a las {datetime.datetime.now() + datetime.timedelta(seconds=900)}')
+    n_rutas_con_datos = (dfs['d'].groupby('ruta')['monto'].sum() > 0).sum() if len(dfs['d']) > 0 else 0
+    n_rutas_total = len(ruta_por_vendedor)
+    pct_rutas_con_datos = n_rutas_con_datos / n_rutas_total if n_rutas_total > 0 else 0.0
+    if soles_total_hoy == 0 or pct_rutas_con_datos < 0.30:
+        print(f'\n[DATOS_VACIOS] Datos insuficientes para el corte {hora_corte}:00')
+        print(f'   Total soles hoy: S/ {soles_total_hoy:.2f}')
+        print(f'   Rutas con datos: {n_rutas_con_datos}/{n_rutas_total} ({pct_rutas_con_datos:.0%})')
+        print(f'   Posible limpieza de caché en el Data Center — se reintentará en 5 minutos')
+        sys.exit(2)
 
     print('\n[4] Generando Excel...')
     wb = Workbook()
@@ -1099,6 +1217,35 @@ Ejemplos:
     out = f'{OUT_DIR}/CORTE_VENTAS_{hoy.strftime("%Y%m%d")}.xlsx'
     wb.save(out)
     print(f'\n   Guardado: {out}')
+
+    # Generar mensajes de alerta de rezago
+    print('\n[5] Generando alertas de rezago...')
+    alertas = {}
+    msg_sup = _ranking_supervisores(g_super, cuota_sup, hora_corte)
+    alertas['canal'] = msg_sup
+    n_sup_rezago = len([l for l in msg_sup.split('\n') if l.startswith('- ')]) if msg_sup else 0
+    if msg_sup:
+        print(f'   Supervisores bajo 80%: {n_sup_rezago} — se enviará ranking al canal general')
+    else:
+        print('   Supervisores: todos en 80%+ — sin ranking')
+
+    # Alertas por supervisor individual
+    alertas['supervisores'] = {}
+    vendedores_por_sup = (df_rutas_raw.groupby('SUPERVISOR')['VENDEDOR']
+                          .apply(lambda x: sorted(x.unique())).to_dict())
+    for sup in vendedores_por_sup:
+        msg_vend = _ranking_vendedores(datos_sup_vend, cuota_vend, ruta_por_vendedor, sup, hora_corte)
+        alertas['supervisores'][sup] = msg_vend
+        if msg_vend:
+            n_vend_rezago = len([l for l in msg_vend.split('\n') if l.startswith('- ')])
+            print(f'   [{sup}]: {n_vend_rezago} vendedor(es) bajo 80% — se enviará ranking a su grupo')
+
+    import json
+    alertas_path = f'{OUT_DIR}/CORTE_ALERTAS_{hoy.strftime("%Y%m%d")}.json'
+    with open(alertas_path, 'w', encoding='utf-8') as f:
+        json.dump(alertas, f, ensure_ascii=False, indent=2)
+    print(f'   Alertas guardadas: {alertas_path}')
+
     print('\nProceso completado OK.')
 
 

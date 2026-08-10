@@ -7,6 +7,7 @@ Uso:
     dia_semana: 1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Viernes, 6=Sábado, 7=Domingo
 """
 # ── Librería estándar ──────────────────────────────────────────────────────────
+import argparse
 import datetime
 import os
 import sys
@@ -50,16 +51,20 @@ SQL_PASSWORD = _env_req('SQL_PASSWORD')
 DIAS_SEMANA = {1: 'Lunes', 2: 'Martes', 3: 'Miércoles',
                4: 'Jueves', 5: 'Viernes', 6: 'Sábado', 7: 'Domingo'}
 
+MESES_ES = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+            7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
+
 HOY            = datetime.date.today()
 HOY_STR        = HOY.strftime('%Y%m%d')      # para el SP
 MES_ACTUAL_INT = int(HOY.strftime('%y%m'))   # ej: 2605
+COL_MES_ACTUAL = f'Venta {MESES_ES[HOY.month]} S/'
 
 BASE_DIR      = 'C:/proyectos/SSFF'
 TABLAS_PATH   = f'{BASE_DIR}/TABLAS_RUTAS.xlsx'
-VTA_HIST_PATH = f'{BASE_DIR}/vtas_soles_resumen_2601-2604.csv'
+VTA_HIST_PATH = f'{BASE_DIR}/files/vtas_soles_resumen_2604-2607.csv'
 
-MESES_HIST    = ['Ene-26 S/', 'Feb-26 S/', 'Mar-26 S/', 'Abr-26 S/']
-MESES_INT     = [2601, 2602, 2603, 2604]    # correspondencia con CSV histórico
+MESES_HIST    = ['Abr-26 S/', 'May-26 S/', 'Jun-26 S/', 'Jul-26 S/']
+MESES_INT     = [2604, 2605, 2606, 2607]    # correspondencia con CSV histórico
 
 UMBRAL_FRECUENCIA = 3
 UMBRAL_TICKET     = 200
@@ -126,8 +131,8 @@ def cargar_ventas_mayo(conn) -> pd.DataFrame:
     df = pd.read_sql(query, conn)
     # normalizar código: quitar ceros a la izquierda
     df['ccod_cli'] = df['ccod_cli'].astype(str).str.lstrip('0')
-    df = df.rename(columns={'total_monto': 'Venta Mayo S/'})
-    return df[['ccod_cli', 'Venta Mayo S/']]
+    df = df.rename(columns={'total_monto': COL_MES_ACTUAL})
+    return df[['ccod_cli', COL_MES_ACTUAL]]
 
 
 def cargar_motivos_no_preventa(conn) -> pd.DataFrame:
@@ -151,6 +156,20 @@ def cargar_tablas_rutas() -> pd.DataFrame:
     """Maestro de rutas: columna ZONA2 por ruta."""
     df = pd.read_excel(TABLAS_PATH, sheet_name='RUTA_ACTUAL', dtype={'RUTA': str})
     return df[['RUTA', 'ZONA2']].rename(columns={'RUTA': 'ruta_key', 'ZONA2': 'Origen Lima'})
+
+
+def cargar_distribucion_ffvv(conn) -> pd.DataFrame:
+    """RUTA → VENDEDOR/SUPERVISOR vigente desde [eAuren].[dbo].[viewSFffvv].
+
+    Esta vista la mantiene Sistemas actualizada permanentemente — se usa para
+    sobrescribir supervisor/vendedor del SP de efectividad, que puede quedar
+    desactualizado tras cambios de cartera.
+    """
+    df = pd.read_sql(
+        "SELECT ruta, vendedorCorto, supervisor FROM [eAuren].[dbo].[viewSFffvv]", conn
+    )
+    df['ruta'] = df['ruta'].astype(str).str.strip()
+    return df.rename(columns={'vendedorCorto': 'vendedor_sql', 'supervisor': 'supervisor_sql'})
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 2. LÓGICA DE CLUSTERS
@@ -188,8 +207,21 @@ def calcular_clusters(df: pd.DataFrame) -> pd.DataFrame:
 # 3. ARMADO DEL DATAFRAME FINAL
 # ════════════════════════════════════════════════════════════════════════════════
 
-def construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas) -> pd.DataFrame:
+def construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas, df_ffvv) -> pd.DataFrame:
     df_efec = df_efec.copy()
+
+    # Quedarse solo con clientes cuyo día de visita programado (diaPvta) incluye
+    # el día de hoy — el SP también trae clientes que compraron fuera de su día
+    # programado (fueraRuta='S'), los cuales no corresponden al funnel del día.
+    df_efec = df_efec[df_efec['fueraRuta'] != 'S'].copy()
+
+    # Sobrescribir vendedor/supervisor con la distribución vigente de viewSFffvv
+    # (el SP de efectividad puede quedar desactualizado tras cambios de cartera).
+    df_efec['ruta'] = df_efec['ruta'].astype(str).str.strip()
+    df_efec = df_efec.merge(df_ffvv, left_on='ruta', right_on='ruta', how='left')
+    df_efec['vendedor']   = df_efec['vendedor_sql'].fillna(df_efec['vendedor'])
+    df_efec['supervisor'] = df_efec['supervisor_sql'].fillna(df_efec['supervisor'])
+    df_efec = df_efec.drop(columns=['vendedor_sql', 'supervisor_sql'])
 
     # Normalizar key de cliente: quitar ceros a la izquierda para unificar con CSV/SQL
     df_efec['_key'] = df_efec['codCliente'].astype(str).str.lstrip('0')
@@ -199,7 +231,7 @@ def construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas) -> pd.DataFr
 
     # Join fuente 2b (venta mayo)
     df = df.merge(df_mayo, left_on='_key', right_on='ccod_cli', how='left')
-    df['Venta Mayo S/'] = df['Venta Mayo S/'].fillna(0)
+    df[COL_MES_ACTUAL] = df[COL_MES_ACTUAL].fillna(0)
 
     # Join fuente 3 (motivos: estado y distancia)
     df = df.merge(df_motivos, left_on='_key', right_on='codCliente', how='left',
@@ -239,10 +271,6 @@ def construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas) -> pd.DataFr
         lambda x: 'SI' if pd.notna(x) and x >= 0.15 else ''
     )
 
-    # ── Día Visita: convertir número a nombre del día ─────────────────────────
-    df['diaPvta'] = pd.to_numeric(df['diaPvta'], errors='coerce') \
-                      .map(DIAS_SEMANA).fillna(df['diaPvta'].astype(str))
-
     # ── Renombrar columnas de fuente1 a nombres de presentación ──────────────
     df = df.rename(columns={
         'supervisor': 'Supervisor',
@@ -258,8 +286,8 @@ def construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas) -> pd.DataFr
     cols_finales = [
         'Supervisor', 'Ruta', 'Vendedor', 'Día Visita',
         'Código', 'Cliente', 'Distrito_cliente', 'Censo',
-        'Segmento', 'Origen Lima',
-        'Ene-26 S/', 'Feb-26 S/', 'Mar-26 S/', 'Abr-26 S/', 'Venta Mayo S/',
+        'Origen Lima',
+        *MESES_HIST, COL_MES_ACTUAL,
         'Coberturado', 'ESTADO_CLIENTE', 'MONTO COMPRA S/',
         'MOTIVO NO COMPRA', 'DISTANCIA (km)', '>150 METROS',
     ]
@@ -286,8 +314,8 @@ def _detectar_col(df, candidatos):
 def fill(hex_color):
     return PatternFill('solid', fgColor=hex_color)
 
-def fnt(bold=False, size=10, color='000000', name='Aptos Narrow'):
-    return Font(bold=bold, size=size, color=color, name=name)
+def fnt(bold=False, size=10, color='000000', name='Aptos Narrow', italic=False):
+    return Font(bold=bold, size=size, color=color, name=name, italic=italic)
 
 def aln(h='center', v='center', wrap=False):
     return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
@@ -306,8 +334,8 @@ C_BLANCO    = 'FFFFFF'
 COL_WIDTHS = {
     'Supervisor': 22, 'Ruta': 8, 'Vendedor': 22, 'Día Visita': 10,
     'Código': 10, 'Cliente': 35, 'Distrito_cliente': 18, 'Censo': 7,
-    'Segmento': 28, 'Origen Lima': 14,
-    'Ene-26 S/': 12, 'Feb-26 S/': 12, 'Mar-26 S/': 12, 'Abr-26 S/': 12, 'Venta Mayo S/': 14,
+    'Origen Lima': 14,
+    **{m: 12 for m in MESES_HIST}, COL_MES_ACTUAL: 14,
     'Coberturado': 12, 'ESTADO_CLIENTE': 18, 'MONTO COMPRA S/': 15,
     'MOTIVO NO COMPRA': 25, 'DISTANCIA (km)': 14, '>150 METROS': 12,
 }
@@ -364,8 +392,7 @@ def escribir_hoja_funnel(ws, df: pd.DataFrame, titulo: str):
     idx_cobert   = cols.index('Coberturado')     + 1 if 'Coberturado'      in cols else None
 
     cols_soles = [j+1 for j, c in enumerate(cols)
-                  if c in ('Ene-26 S/', 'Feb-26 S/', 'Mar-26 S/', 'Abr-26 S/',
-                            'Venta Mayo S/', 'MONTO COMPRA S/')]
+                  if c in (*MESES_HIST, COL_MES_ACTUAL, 'MONTO COMPRA S/')]
     cols_dist  = [j+1 for j, c in enumerate(cols) if c == 'DISTANCIA (km)']
 
     idx_cliente = cols.index('Cliente') + 1 if 'Cliente' in cols else -1
@@ -416,10 +443,156 @@ def escribir_hoja_funnel(ws, df: pd.DataFrame, titulo: str):
     ws.auto_filter.ref = f"A2:{get_column_letter(n_cols)}{len(df) + 2}"
 
 
-def generar_excel(df_total: pd.DataFrame, nombre_archivo: str):
+def calcular_resumen_supervisor(df_total: pd.DataFrame) -> pd.DataFrame:
+    """
+    Resumen de avance de cobertura/preventa por Supervisor (hoja RESUMEN).
+
+    Columnas (ver files/EJEMPLO5.png):
+      CARTERA DIA VISITA     : cuenta de todos los clientes del día (df_total ya
+                                viene filtrado al día de hoy).
+      CLIENTES CON VTA DIA   : cuenta de clientes con venta HOY (MONTO COMPRA S/ > 0)
+                                O con facturación acumulada en el mes actual
+                                (Venta Agosto S/ > 0) — complemento exacto de
+                                CLIENTES S/VTA MES ACT. (por ley de De Morgan, la
+                                suma de ambas columnas siempre da CARTERA DIA VISITA).
+      %COBERTURA DIA         : con_vta_dia / cartera.
+      CLIENTES S/VTA MES ACT.: cuenta de clientes SIN venta hoy Y SIN facturación
+                                acumulada en el mes actual (Venta Agosto S/ == 0
+                                Y MONTO COMPRA S/ == 0). Un cliente que compró hoy
+                                ya cuenta como cubierto aquí, aunque el acumulado
+                                mensual todavía no lo refleje.
+      %PDTE COBERTURA        : ese conteo / cartera.
+      CLIENTES S/VTA ULT2MES : subconjunto del anterior — además tampoco tienen
+                                facturación en el mes anterior (Jul-26 S/ == 0).
+      %PDTE COBERTURA ULT2M  : ese conteo / cartera.
+    """
+    col_jul = 'Jul-26 S/'
+
+    def _agg(g):
+        # Jul-26 S/ y Venta Agosto S/ quedan NaN cuando el cliente no compró ese
+        # mes — se tratan igual que 0 para estas métricas.
+        hoy_vacio = g['MONTO COMPRA S/'].fillna(0) == 0
+        ago_vacio = g[COL_MES_ACTUAL].fillna(0) == 0
+        jul_vacio = g[col_jul].fillna(0) == 0
+
+        cartera       = len(g)
+        con_vta_dia   = (~ago_vacio | ~hoy_vacio).sum()
+        sin_vta_mes   = (ago_vacio & hoy_vacio).sum()
+        sin_vta_2mes  = (ago_vacio & jul_vacio & hoy_vacio).sum()
+        return pd.Series({
+            'CARTERA DIA VISITA':      cartera,
+            'CLIENTES CON VTA DIA':    con_vta_dia,
+            '%COBERTURA DIA':          con_vta_dia / cartera if cartera else 0,
+            'CLIENTES S/VTA MES ACT.': sin_vta_mes,
+            '%PDTE COBERTURA':         sin_vta_mes / cartera if cartera else 0,
+            'CLIENTES S/VTA ULT2MES':  sin_vta_2mes,
+            '%PDTE COBERTURA ULT2M':   sin_vta_2mes / cartera if cartera else 0,
+        })
+
+    resumen = df_total.groupby('Supervisor', sort=True).apply(_agg, include_groups=False)
+    resumen = resumen.reset_index().sort_values('Supervisor')
+
+    total = resumen[['CARTERA DIA VISITA', 'CLIENTES CON VTA DIA',
+                      'CLIENTES S/VTA MES ACT.', 'CLIENTES S/VTA ULT2MES']].sum()
+    fila_total = {
+        'Supervisor':              'TOTAL AUREN',
+        'CARTERA DIA VISITA':      total['CARTERA DIA VISITA'],
+        'CLIENTES CON VTA DIA':    total['CLIENTES CON VTA DIA'],
+        '%COBERTURA DIA':          total['CLIENTES CON VTA DIA'] / total['CARTERA DIA VISITA'] if total['CARTERA DIA VISITA'] else 0,
+        'CLIENTES S/VTA MES ACT.': total['CLIENTES S/VTA MES ACT.'],
+        '%PDTE COBERTURA':         total['CLIENTES S/VTA MES ACT.'] / total['CARTERA DIA VISITA'] if total['CARTERA DIA VISITA'] else 0,
+        'CLIENTES S/VTA ULT2MES':  total['CLIENTES S/VTA ULT2MES'],
+        '%PDTE COBERTURA ULT2M':   total['CLIENTES S/VTA ULT2MES'] / total['CARTERA DIA VISITA'] if total['CARTERA DIA VISITA'] else 0,
+    }
+    resumen = pd.concat([resumen, pd.DataFrame([fila_total])], ignore_index=True)
+    return resumen
+
+
+COLOR_RESUMEN_HEADER = {
+    'Supervisor':              'DDEBF7',
+    'CARTERA DIA VISITA':      'DDEBF7',
+    'CLIENTES CON VTA DIA':    'E2EFDA',
+    '%COBERTURA DIA':          'E2EFDA',
+    'CLIENTES S/VTA MES ACT.': 'FBE0CE',
+    '%PDTE COBERTURA':         'FBE0CE',
+    'CLIENTES S/VTA ULT2MES':  'FFFF00',
+    '%PDTE COBERTURA ULT2M':   'FFFF00',
+}
+
+
+def escribir_hoja_resumen(ws, df: pd.DataFrame, hora_corte: str):
+    cols = list(df.columns)  # Supervisor + 6 columnas de métricas
+    n_cols = len(cols)
+    nombre_dia = DIAS_SEMANA[HOY.weekday() + 1]
+
+    # Fila 1: título (A1:F1) + CORTE (G1) + hora (H1)
+    ws.merge_cells('A1:F1')
+    c = ws.cell(row=1, column=1,
+                value=f"AVANCE DE COBERTURA/PREVENTA DIA DE VISITA - [{nombre_dia.upper()}] - [{HOY.strftime('%d/%m/%Y')}]")
+    c.font      = fnt(bold=True, size=12, color='000000', italic=True)
+    c.fill      = fill('F8CBD9')
+    c.alignment = aln('left')
+
+    # H1 (hora) define el formato; G1 (etiqueta CORTE) copia el mismo formato
+    fmt_hora = {'font': fnt(bold=True, size=13, color='000000'), 'fill': fill('FFFF99'), 'alignment': aln('center')}
+
+    c_lbl = ws.cell(row=1, column=7, value='CORTE')  # G1
+    c_lbl.font      = fmt_hora['font']
+    c_lbl.fill      = fmt_hora['fill']
+    c_lbl.alignment = fmt_hora['alignment']
+
+    c_hora = ws.cell(row=1, column=8, value=hora_corte)  # H1
+    c_hora.font      = fmt_hora['font']
+    c_hora.fill      = fmt_hora['fill']
+    c_hora.alignment = fmt_hora['alignment']
+
+    # Fila 2: encabezados
+    for j, col in enumerate(cols, 1):
+        texto = col.upper() if col == 'Supervisor' else col
+        c = ws.cell(row=2, column=j, value=texto)
+        c.font      = fnt(bold=True, size=9, color='000000')
+        c.fill      = fill(COLOR_RESUMEN_HEADER.get(col, C_AZUL_MED))
+        c.alignment = aln('center', wrap=True)
+        c.border    = brd()
+    ws.row_dimensions[2].height = 45
+
+    ws.column_dimensions['A'].width = 20
+    for j in range(2, n_cols + 1):
+        ws.column_dimensions[get_column_letter(j)].width = 11
+
+    cols_pct = [j + 1 for j, c in enumerate(cols) if c.startswith('%')]
+
+    # Filas de datos (supervisores + TOTAL AUREN al final)
+    n = len(df)
+    for i, (_, fila) in enumerate(df.iterrows(), 3):
+        es_total = fila['Supervisor'] == 'TOTAL AUREN'
+        for j, col in enumerate(cols, 1):
+            val = fila[col]
+            if hasattr(val, 'item'):
+                val = val.item()
+            c = ws.cell(row=i, column=j, value=val)
+            c.border    = brd()
+            c.alignment = aln('left' if j == 1 else 'center')
+            c.font      = fnt(bold=es_total, size=10)
+            if es_total:
+                c.fill = fill('D9D9D9')
+            if j in cols_pct:
+                c.number_format = '0.0%'
+
+    ws.freeze_panes = 'A3'
+    ws.auto_filter.ref = f"A2:{get_column_letter(n_cols)}{n + 2}"
+
+
+def generar_excel(df_total: pd.DataFrame, nombre_archivo: str, hora_corte: str):
     wb = Workbook()
-    ws_total = wb.active
-    ws_total.title = 'FUNNEL TOTAL'
+
+    ws_resumen = wb.active
+    ws_resumen.title = 'RESUMEN'
+    df_resumen = calcular_resumen_supervisor(df_total)
+    print(f"   Escribiendo hoja RESUMEN ({len(df_resumen):,} filas)...")
+    escribir_hoja_resumen(ws_resumen, df_resumen, hora_corte)
+
+    ws_total = wb.create_sheet(title='FUNNEL TOTAL')
 
     supervisores = df_total['Supervisor'].dropna().unique() if 'Supervisor' in df_total.columns else []
 
@@ -442,9 +615,15 @@ def generar_excel(df_total: pd.DataFrame, nombre_archivo: str):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def main():
-    # Si se pasa argumento manual se usa; si no, se calcula desde la fecha de hoy
-    if len(sys.argv) >= 2:
-        dia_semana = int(sys.argv[1])
+    parser = argparse.ArgumentParser(description='Funnel Preventa diario')
+    parser.add_argument('dia_semana', type=int, nargs='?', default=None,
+                         help='1=Lunes … 7=Domingo (default: hoy)')
+    parser.add_argument('--corte', default='9AM',
+                         help="Etiqueta del corte horario mostrada en la hoja RESUMEN (default: '9AM')")
+    args = parser.parse_args()
+
+    if args.dia_semana is not None:
+        dia_semana = args.dia_semana
         if dia_semana not in DIAS_SEMANA:
             print(f"Error: dia_semana debe estar entre 1 y 7 (recibido: {dia_semana})")
             sys.exit(1)
@@ -468,17 +647,17 @@ def main():
         df_mayo    = cargar_ventas_mayo(conn)
         df_motivos = cargar_motivos_no_preventa(conn)
         df_rutas   = cargar_tablas_rutas()
+        df_ffvv    = cargar_distribucion_ffvv(conn)
 
         print("\n[2] Construyendo base consolidada...")
-        df_base = construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas)
+        df_base = construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas, df_ffvv)
 
         print(f"\n   Columnas del SP efectividad: {list(df_efec.columns)}")
         print(f"   Total clientes: {len(df_base):,}")
         print(f"   Distribución ESTADO_CLIENTE:\n{df_base['ESTADO_CLIENTE'].value_counts().to_string()}")
-        print(f"   Distribución Segmento:\n{df_base['Segmento'].value_counts().to_string()}")
 
         print("\n[3] Generando Excel...")
-        generar_excel(df_base, output)
+        generar_excel(df_base, output, args.corte)
 
     finally:
         conn.close()
