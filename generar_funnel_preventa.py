@@ -215,6 +215,12 @@ def construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas, df_ffvv) -> 
     # programado (fueraRuta='S'), los cuales no corresponden al funnel del día.
     df_efec = df_efec[df_efec['fueraRuta'] != 'S'].copy()
 
+    # Hora máxima de pedido por cliente: un mismo codCliente puede aparecer más
+    # de una vez (visitado/vendido por más de un vendedor el mismo día) — se toma
+    # la hora más tardía entre todas sus filas y se aplica a cada una de ellas.
+    hora_max_cliente = df_efec.groupby('codCliente')['horaTP'].transform('max')
+    df_efec['HORA MAXIMA PEDIDO'] = hora_max_cliente
+
     # Sobrescribir vendedor/supervisor con la distribución vigente de viewSFffvv
     # (el SP de efectividad puede quedar desactualizado tras cambios de cartera).
     df_efec['ruta'] = df_efec['ruta'].astype(str).str.strip()
@@ -289,7 +295,7 @@ def construir_base(df_efec, df_hist, df_mayo, df_motivos, df_rutas, df_ffvv) -> 
         'Origen Lima',
         *MESES_HIST, COL_MES_ACTUAL,
         'Coberturado', 'ESTADO_CLIENTE', 'MONTO COMPRA S/',
-        'MOTIVO NO COMPRA', 'DISTANCIA (km)', '>150 METROS',
+        'MOTIVO NO COMPRA', 'HORA MAXIMA PEDIDO', 'DISTANCIA (km)', '>150 METROS',
     ]
     cols_presentes = [c for c in cols_finales if c in df.columns]
     df = df[cols_presentes]
@@ -337,7 +343,8 @@ COL_WIDTHS = {
     'Origen Lima': 14,
     **{m: 12 for m in MESES_HIST}, COL_MES_ACTUAL: 14,
     'Coberturado': 12, 'ESTADO_CLIENTE': 18, 'MONTO COMPRA S/': 15,
-    'MOTIVO NO COMPRA': 25, 'DISTANCIA (km)': 14, '>150 METROS': 12,
+    'MOTIVO NO COMPRA': 25, 'HORA MAXIMA PEDIDO': 16,
+    'DISTANCIA (km)': 14, '>150 METROS': 12,
 }
 
 COLOR_ESTADO = {
@@ -394,6 +401,7 @@ def escribir_hoja_funnel(ws, df: pd.DataFrame, titulo: str):
     cols_soles = [j+1 for j, c in enumerate(cols)
                   if c in (*MESES_HIST, COL_MES_ACTUAL, 'MONTO COMPRA S/')]
     cols_dist  = [j+1 for j, c in enumerate(cols) if c == 'DISTANCIA (km)']
+    cols_hora  = [j+1 for j, c in enumerate(cols) if c == 'HORA MAXIMA PEDIDO']
 
     idx_cliente = cols.index('Cliente') + 1 if 'Cliente' in cols else -1
 
@@ -432,6 +440,9 @@ def escribir_hoja_funnel(ws, df: pd.DataFrame, titulo: str):
                 c.font = fnt(size=9)
             elif j in cols_dist:
                 c.number_format = '0.000'
+                c.font = fnt(size=9)
+            elif j in cols_hora:
+                c.number_format = 'hh:mm'
                 c.font = fnt(size=9)
             else:
                 c.font = fnt(size=9)
@@ -577,7 +588,7 @@ def escribir_hoja_resumen(ws, df: pd.DataFrame, hora_corte: str):
             if es_total:
                 c.fill = fill('D9D9D9')
             if j in cols_pct:
-                c.number_format = '0.0%'
+                c.number_format = '0%'
 
     ws.freeze_panes = 'A3'
     ws.auto_filter.ref = f"A2:{get_column_letter(n_cols)}{n + 2}"

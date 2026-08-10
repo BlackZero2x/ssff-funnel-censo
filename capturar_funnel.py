@@ -114,7 +114,7 @@ def capturar_resumen(archivo_excel: Path, etiqueta_corte: str) -> str | None:
         mgr.liberar_lock()
 
 
-def enviar_whatsapp(ruta_png: str, destino: str, etiqueta_corte: str, config: dict) -> bool:
+def enviar_whatsapp(ruta_png: str, ruta_xlsx: Path, destino: str, etiqueta_corte: str, config: dict) -> bool:
     destinos = config.get('cortes_horarios', {}).get('destinos', {})
     numero_destino = destinos.get(destino)
     if not numero_destino:
@@ -122,11 +122,21 @@ def enviar_whatsapp(ruta_png: str, destino: str, etiqueta_corte: str, config: di
         return False
 
     wa = WhatsAppClient()
-    r = wa.send_image(numero_destino, ruta_png, caption=f"FUNNEL PREVENTA {etiqueta_corte}")
+
+    r = wa.send_image(numero_destino, ruta_png, caption=f"*Funnel Preventa Corte: {etiqueta_corte}*")
     if not r.get('success'):
-        _logger.error(f"[ERROR] Fallo envío: {r.get('error')}")
+        _logger.error(f"[ERROR] Fallo envío de imagen: {r.get('error')}")
         return False
-    _logger.info(f"[OK] FUNNEL PREVENTA {etiqueta_corte} → {destino}")
+    _logger.info(f"[OK] Imagen FUNNEL PREVENTA {etiqueta_corte} → {destino}")
+
+    time.sleep(3)
+
+    r2 = wa.send_file(numero_destino, str(ruta_xlsx), caption="")
+    if not r2.get('success'):
+        _logger.error(f"[ERROR] Fallo envío de archivo: {r2.get('error')}")
+        return False
+    _logger.info(f"[OK] Archivo FUNNEL PREVENTA {etiqueta_corte} → {destino}")
+
     return True
 
 
@@ -158,7 +168,7 @@ def main():
         _logger.info("[OK] Imagen capturada (--solo-imagen activo)")
         return
 
-    if not enviar_whatsapp(ruta_png, args.destino, args.corte, config):
+    if not enviar_whatsapp(ruta_png, archivo, args.destino, args.corte, config):
         sys.exit(1)
 
     _logger.info(f"[OK] FUNNEL PREVENTA {args.corte} completado")
