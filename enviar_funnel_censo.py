@@ -223,12 +223,22 @@ def _capturar_imagenes():
     """
     import xlwings as xw
 
+    sys.path.insert(0, r"C:\proyectos\shared")
+    from screenshot_safe import ScreenshotManager
+
     temp_dir = os.path.join(DIR_SSFF, 'temp_capturas')
     os.makedirs(temp_dir, exist_ok=True)
 
     # Esperar a que generar_funnel_censo.py libere el archivo
     if not _esperar_archivo_libre(ARCHIVO_PRINCIPAL, timeout=30):
         logging.error('El archivo principal sigue bloqueado después de 30s — se omite captura.')
+        return []
+
+    # Lock global EXCEL_COM: evita chocar con otros procesos (SSFF/MOVISTAR) que
+    # abren Excel/COM al mismo tiempo — se ejecuta en cola en vez de competir.
+    mgr = ScreenshotManager("SSFF_Funnel_Censo")
+    if not mgr.adquirir_lock(timeout=120):
+        logging.error('No se pudo adquirir el lock de Excel/COM — se omite captura.')
         return []
 
     capturas = []  # lista de (nombre_archivo, ruta_png)
@@ -266,6 +276,7 @@ def _capturar_imagenes():
                 app.quit()
             except Exception:
                 pass
+        mgr.liberar_lock()
 
     return capturas
 

@@ -94,9 +94,23 @@ def capturar_resumen(archivo_excel: Path, etiqueta_corte: str) -> str | None:
         _logger.error(f"[ERROR] Timeout esperando lock para {etiqueta_corte}")
         return None
 
+    app = None
     try:
+        # El archivo puede estar recién guardado por openpyxl (proceso Python) —
+        # dar un margen antes de que Excel/COM (proceso distinto) intente abrirlo,
+        # con reintentos por si el handle tarda en liberarse.
         app = xw.App(visible=True)
-        libro = app.books.open(str(archivo_excel))
+        libro = None
+        for intento in range(1, 4):
+            try:
+                libro = app.books.open(str(archivo_excel))
+                break
+            except Exception as e:
+                if intento == 3:
+                    raise
+                _logger.warning(f"[WARN] Intento {intento}/3 abriendo Excel falló: {e} — reintentando en 2s")
+                time.sleep(2)
+
         try:
             hoja = libro.sheets['RESUMEN']
             _logger.info(f"[CAPTURE] RESUMEN ({RANGO_RESUMEN})...")
@@ -107,11 +121,12 @@ def capturar_resumen(archivo_excel: Path, etiqueta_corte: str) -> str | None:
             return None
         finally:
             libro.close()
-            app.quit()
     except Exception as e:
         _logger.error(f"[ERROR] Error durante captura: {e}")
         return None
     finally:
+        if app is not None:
+            app.quit()
         mgr.liberar_lock()
 
 
