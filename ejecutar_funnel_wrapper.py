@@ -12,6 +12,7 @@ import argparse
 import logging
 import subprocess
 import sys
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -21,8 +22,9 @@ CAPTURAR   = SCRIPT_DIR / "capturar_funnel.py"
 LOG_DIR    = SCRIPT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
-TIMEOUT_GENERAR  = 180  # 3 minutos
-TIMEOUT_CAPTURAR = 120  # 2 minutos
+TIMEOUT_GENERAR    = 180  # 3 minutos
+TIMEOUT_CAPTURAR   = 120  # 2 minutos
+ESPERA_POST_GENERAR = 20  # segundos — margen para que el SO/antivirus suelte el .xlsx recién escrito
 
 CORTES_VALIDOS = {'9AM', '1PM', '4PM', '5:30PM'}
 
@@ -102,6 +104,12 @@ def main():
         logger.error(f"[ERROR] generar_funnel_preventa.py falló (código {r1.returncode})")
         sys.exit(1)
     logger.info("[OK] Excel generado correctamente")
+
+    # Margen antes de que Excel/COM intente abrir el archivo recién escrito —
+    # el antivirus/Windows Defender puede retener brevemente el acceso exclusivo
+    # a un .xlsx recién modificado, aunque ya no haya ningún proceso reteniéndolo.
+    logger.info(f"[WAIT] Esperando {ESPERA_POST_GENERAR}s antes de capturar...")
+    time.sleep(ESPERA_POST_GENERAR)
 
     logger.info(f"[2/2] Capturando y enviando a WhatsApp... (timeout={TIMEOUT_CAPTURAR}s)")
     try:

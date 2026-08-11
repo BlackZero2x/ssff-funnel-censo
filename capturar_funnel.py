@@ -94,22 +94,51 @@ def capturar_resumen(archivo_excel: Path, etiqueta_corte: str) -> str | None:
         _logger.error(f"[ERROR] Timeout esperando lock para {etiqueta_corte}")
         return None
 
-    app = None
+    def _cerrar_app(app):
+        """Cierra la instancia de Excel. Si app.quit() falla o no logra terminar
+        el proceso, lo mata por PID — un Excel zombi bloquea el archivo para
+        SIEMPRE (no solo para este intento), afectando también a los cortes
+        siguientes hasta que alguien lo cierre manualmente."""
+        if app is None:
+            return
+        pid = None
+        try:
+            pid = app.pid
+        except Exception:
+            pass
+        try:
+            app.quit()
+        except Exception as e:
+            _logger.warning(f"[WARN] No se pudo cerrar la instancia de Excel limpiamente: {e}")
+        if pid:
+            try:
+                import subprocess
+                subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
+                               capture_output=True, timeout=10)
+            except Exception:
+                pass
+
     try:
         # El archivo puede estar recién guardado por openpyxl (proceso Python) —
-        # dar un margen antes de que Excel/COM (proceso distinto) intente abrirlo,
-        # con reintentos por si el handle tarda en liberarse.
-        app = xw.App(visible=True)
+        # dar un margen antes de que Excel/COM (proceso distinto) intente abrirlo.
+        # Si una instancia de Excel falla al abrir el archivo, se descarta por
+        # completo (puede quedar en estado inconsistente) y se crea una nueva
+        # para el siguiente intento — reutilizarla puede hacer fallar hasta el
+        # propio app.quit().
         libro = None
-        for intento in range(1, 4):
+        max_intentos = 5
+        for intento in range(1, max_intentos + 1):
+            app = xw.App(visible=True)
             try:
                 libro = app.books.open(str(archivo_excel))
                 break
             except Exception as e:
-                if intento == 3:
+                _cerrar_app(app)
+                if intento == max_intentos:
                     raise
-                _logger.warning(f"[WARN] Intento {intento}/3 abriendo Excel falló: {e} — reintentando en 2s")
-                time.sleep(2)
+                espera = 5 * intento
+                _logger.warning(f"[WARN] Intento {intento}/{max_intentos} abriendo Excel falló: {e} — reintentando en {espera}s")
+                time.sleep(espera)
 
         try:
             hoja = libro.sheets['RESUMEN']
@@ -121,12 +150,11 @@ def capturar_resumen(archivo_excel: Path, etiqueta_corte: str) -> str | None:
             return None
         finally:
             libro.close()
+            _cerrar_app(app)
     except Exception as e:
         _logger.error(f"[ERROR] Error durante captura: {e}")
         return None
     finally:
-        if app is not None:
-            app.quit()
         mgr.liberar_lock()
 
 
