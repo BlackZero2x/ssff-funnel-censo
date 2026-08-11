@@ -3,7 +3,7 @@
 ejecutar_funnel_wrapper.py
 
 Wrapper usado por el Task Scheduler. Ejecuta generar_funnel_preventa.py y
-capturar_funnel.py secuencialmente, cada 2 horas: 9AM, 11AM, 1PM, 3PM, 5PM.
+capturar_funnel.py secuencialmente en los cortes: 9AM, 1PM, 4PM y 5:30PM (cierre).
 
 Uso: python ejecutar_funnel_wrapper.py --corte 9AM
 """
@@ -24,7 +24,7 @@ LOG_DIR.mkdir(exist_ok=True)
 TIMEOUT_GENERAR  = 180  # 3 minutos
 TIMEOUT_CAPTURAR = 120  # 2 minutos
 
-CORTES_VALIDOS = {'9AM', '11AM', '1PM', '3PM', '5PM'}
+CORTES_VALIDOS = {'9AM', '1PM', '4PM', '5:30PM'}
 
 # Fechas sin envio de funnel (feriados, mantenimiento, etc.)
 FECHAS_SIN_CORTE = {date(2026, 7, 29)}

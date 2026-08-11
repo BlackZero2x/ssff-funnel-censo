@@ -85,10 +85,11 @@ def buscar_archivo_hoy() -> Path | None:
 
 def capturar_resumen(archivo_excel: Path, etiqueta_corte: str) -> str | None:
     """Captura la hoja RESUMEN como PNG. Retorna la ruta o None si falla."""
-    timestamp = date.today().strftime("%Y%m%d") + "_" + etiqueta_corte
+    slug = etiqueta_corte.replace(':', '')  # ':' no es válido en nombres de archivo Windows
+    timestamp = date.today().strftime("%Y%m%d") + "_" + slug
     ruta_png  = IMAGENES_DIR / f'RESUMEN_{timestamp}.png'
 
-    mgr = ScreenshotManager(f"SSFF_Funnel_{etiqueta_corte}")
+    mgr = ScreenshotManager(f"SSFF_Funnel_{slug}")
     if not mgr.adquirir_lock(timeout=30):
         _logger.error(f"[ERROR] Timeout esperando lock para {etiqueta_corte}")
         return None
@@ -123,7 +124,12 @@ def enviar_whatsapp(ruta_png: str, ruta_xlsx: Path, destino: str, etiqueta_corte
 
     wa = WhatsAppClient()
 
-    r = wa.send_image(numero_destino, ruta_png, caption=f"*Funnel Preventa Corte: {etiqueta_corte}*")
+    if etiqueta_corte == '5:30PM':
+        caption_img = f"*CIERRE Funnel Preventa — {etiqueta_corte}*"
+    else:
+        caption_img = f"*Funnel Preventa Corte: {etiqueta_corte}*"
+
+    r = wa.send_image(numero_destino, ruta_png, caption=caption_img)
     if not r.get('success'):
         _logger.error(f"[ERROR] Fallo envío de imagen: {r.get('error')}")
         return False
