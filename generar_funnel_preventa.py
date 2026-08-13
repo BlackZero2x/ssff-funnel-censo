@@ -591,7 +591,6 @@ def escribir_hoja_resumen(ws, df: pd.DataFrame, hora_corte: str):
                 c.number_format = '0%'
 
     ws.freeze_panes = 'A3'
-    ws.auto_filter.ref = f"A2:{get_column_letter(n_cols)}{n + 2}"
 
 
 def generar_excel(df_total: pd.DataFrame, nombre_archivo: str, hora_corte: str):

@@ -45,6 +45,11 @@ def crear_tarea_windows(hora: int, minuto: int, etiqueta: str) -> bool:
     python_exe = "C:\\proyectos\\.venv\\Scripts\\python.exe"
     argumentos = f'"{SCRIPT_WRAPPER}" --corte {etiqueta} --destino canal'
 
+    # IMPORTANTE: correr como SYSTEM ejecuta la tarea en Session 0 (sin escritorio
+    # interactivo). Excel/COM (xlwings, visible=True) necesita un escritorio real
+    # para inicializar su ventana — en Session 0 queda en estado inestable/zombi
+    # y falla al abrir archivos. Por eso se usa el mismo usuario y LogonType
+    # Interactive que ya usan (y funcionan de forma estable) las tareas SSFF_Corte_*.
     schtasks_cmd = [
         "schtasks",
         "/create",
@@ -53,7 +58,8 @@ def crear_tarea_windows(hora: int, minuto: int, etiqueta: str) -> bool:
         "/sc", "weekly",
         "/d", "MON,TUE,WED,THU,FRI,SAT",
         "/st", f"{hora:02d}:{minuto:02d}:00",
-        "/ru", "SYSTEM",
+        "/ru", "developer7",
+        "/it",  # solo ejecuta si developer7 tiene sesión iniciada (interactivo)
         "/f",
     ]
 
