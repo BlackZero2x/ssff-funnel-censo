@@ -1136,16 +1136,28 @@ Ejemplos:
     print('\n[2] Etiquetando horas y aplicando corte acumulado...')
     dfs = {}
     for nm, df in [('d', df_d), ('d7', df_d7), ('d14', df_d14)]:
-        # Separar pedidos sin hora (editados manualmente) — se suman siempre
+        # Pedidos sin hora (regularizados/editados manualmente, horaTP queda NULL).
+        # Para HOY (d): se suman siempre, porque no hay forma de saber si hubieran
+        # caído antes o después del corte en el momento en que se generó ese corte.
+        # Para D-7/D-14 (días pasados): se excluyen en todos los cortes horarios,
+        # salvo el de 6PM (fin de día, sin filtro). Motivo: la BD puede regularizar
+        # estos pedidos DESPUÉS de la hora del corte original, y sumarlos siempre
+        # infla el histórico frente a lo que realmente se vio en vivo ese día
+        # (ver observación 19/08/2026: corte 8AM del 12/08 mostró S/13,999 en vivo,
+        # pero D-7 recalculado días después sumaba S/46,535 por 9 pedidos sin hora
+        # regularizados tras las 8AM).
         sin_hora = df[df['horaTP'].isna()].copy()
         con_hora = df[df['horaTP'].notna()].copy()
         con_hora = agregar_hora_lbl(con_hora)
         con_hora = filtrar_corte(con_hora, hora_corte)
-        if not sin_hora.empty:
+        incluir_sin_hora = (nm == 'd') or (hora_corte == 18)
+        if incluir_sin_hora and not sin_hora.empty:
             sin_hora['hora_h'] = hora_corte  # asignar hora del corte para compatibilidad
             df = pd.concat([con_hora, sin_hora], ignore_index=True)
             print(f"   {nm}: {len(con_hora):,} con hora + {len(sin_hora):,} sin hora = {len(df):,} pedidos")
         else:
+            if not sin_hora.empty:
+                print(f"   {nm}: {len(sin_hora):,} pedidos sin hora EXCLUIDOS (día pasado, corte {hora_lbl})")
             df = con_hora
             print(f"   {nm}: {len(df):,} pedidos hasta {hora_lbl}")
         df['ZONA2'] = df['ruta'].map(mapa_zona).fillna('(sin zona)')
