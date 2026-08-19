@@ -55,14 +55,43 @@ class WhatsAppClient:
                 else:
                     resp = requests.post(url, json=kwargs.get("json"), timeout=60)
 
+                # Intentar parsear JSON
+                try:
+                    resp_json = resp.json()
+                except Exception:
+                    resp_json = {}
+
                 if resp.status_code == 200:
-                    return {"success": True, "data": resp.json()}
+                    # Verificar si el servidor devolvió un error en el body (incluso con HTTP 200)
+                    if resp_json.get("error"):
+                        error_msg = resp_json.get("error")
+                        # "Promise was collected" es un error transitorio de Puppeteer — reintentar
+                        if "Promise was collected" in error_msg or "Protocol error" in error_msg:
+                            last_error = f"Servidor puppeteer inestable: {error_msg[:100]}"
+                            print(f"  [Intento {attempt}/{self.max_retries}] {last_error}")
+                            if attempt < self.max_retries:
+                                time.sleep(self.retry_delay * attempt * 2)
+                                continue
+                        return {"success": False, "error": error_msg, "status": 200}
+                    return {"success": True, "data": resp_json}
                 elif resp.status_code == 503:
                     print(f"  [Intento {attempt}/{self.max_retries}] WhatsApp no está listo, esperando...")
                     time.sleep(self.retry_delay * attempt)
                     continue
+                elif resp.status_code == 500:
+                    error_data = resp_json if resp_json else {"error": resp.text}
+                    error_msg = error_data.get("error", resp.text)
+                    # Cliente WA en null durante un reinicio en curso (ventana entre
+                    # "Destruyendo cliente anterior" y "Cliente WhatsApp listo") — transitorio
+                    if "reading 'sendMessage'" in error_msg or "Cannot read properties of null" in error_msg:
+                        last_error = f"Cliente WA reiniciandose: {error_msg[:100]}"
+                        print(f"  [Intento {attempt}/{self.max_retries}] {last_error}")
+                        if attempt < self.max_retries:
+                            time.sleep(self.retry_delay * attempt * 2)
+                            continue
+                    return {"success": False, "error": error_msg, "status": 500}
                 else:
-                    error_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"error": resp.text}
+                    error_data = resp_json if resp_json else {"error": resp.text}
                     return {"success": False, "error": error_data.get("error", resp.text), "status": resp.status_code}
 
             except requests.ConnectionError:

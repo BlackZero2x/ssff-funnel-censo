@@ -29,6 +29,17 @@
     "V0": ""
   },
 
+  "vendedor_grupos": {
+    "KEVIN FARIAS":        "120363414667254590@g.us",
+    "JIMMY SALAZAR":       "120363028965378699@g.us",
+    "DIANA MADALENGOITIA": "120363398417966403@g.us",
+    "JUAN ALMEIDA":        "120363405226702983@g.us",
+    "MAX QUISPE":          "120363047425659603@g.us",
+    "JUAN CARLOS ARAY":    "120363041293612121@g.us",
+    "NONA PINCHI":         "120363426045114941@g.us",
+    "EDWIN VIELMA":        "120363228919761380@g.us"
+  },
+
   "mentions": {
     "supervisores": [],
     "jefe_proyecto": {
