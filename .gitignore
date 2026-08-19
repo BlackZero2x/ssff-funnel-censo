@@ -56,6 +56,16 @@ Reportes_ssff_wsp/__pycache__/
 Reportes_ssff_wsp/config.json      # Nunca subir config real con IDs
 Reportes_ssff_wsp/DIRECTORIO_MENCIONES.md  # Datos sensibles
 
+# ── Outputs regenerables de los cortes de ventas ──────
+Reportes_ssff_wsp/cache/
+Reportes_ssff_wsp/cortes_imagenes/
+Reportes_ssff_wsp/CORTE_ALERTAS_*.json
+Reportes_ssff_wsp/CORTE_VENTAS_*.xlsx
+funnel_imagenes/
+historico_SFavances/
+tablas_jesus_diario/
+Reporte_pedidos_wsp/imagenes/
+
 # ── Windows ────────────────────────────────────────────
 $RECYCLE.BIN/
 ehthumbs.db

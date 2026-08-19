@@ -20,16 +20,18 @@ import subprocess
 import sys
 import logging
 import gc
-import psutil
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import date, datetime
 
 SCRIPT_DIR = Path(__file__).parent.absolute()
 GENERAR = SCRIPT_DIR / "generar_corte_ventas.py"
 CAPTURAR = SCRIPT_DIR / "capturar_cortes.py"
 LOG_DIR = SCRIPT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
+
+# Fechas sin envio de corte (feriados, mantenimiento, etc.)
+FECHAS_SIN_CORTE = {date(2026, 7, 29)}
 
 # Importar módulo de alertas personales
 try:
@@ -42,7 +44,8 @@ except ImportError:
 REINTENTOS_POR_DEFECTO = 3
 ESPERA_ENTRE_REINTENTOS = 5  # segundos
 ESPERA_DATOS_CERO = 900  # 15 minutos en segundos
-TIMEOUT_GENERAR = 120  # 2 minutos
+TIMEOUT_GENERAR = 120   # 2 minutos
+TIMEOUT_CAPTURAR = 480  # 8 minutos — envía a canal + grupos individuales + alertas
 
 
 def setup_logger(hora: int):
@@ -71,17 +74,6 @@ def setup_logger(hora: int):
     return logger
 
 
-def limpiar_memoria():
-    """Libera memoria no utilizada."""
-    gc.collect()
-    try:
-        proceso = psutil.Process()
-        mem_antes = proceso.memory_info().rss / 1024 / 1024  # MB
-        mem_despues = proceso.memory_info().rss / 1024 / 1024
-        return mem_antes, mem_despues
-    except Exception:
-        return None, None
-
 
 def detectar_datos_cero(hora: int, logger) -> bool:
     """Detecta si el archivo generado tiene datos en cero."""
@@ -103,7 +95,7 @@ def detectar_datos_cero(hora: int, logger) -> bool:
                         return False
     except Exception as e:
         logger.warning(f"[WARN] No se pudo validar datos: {e}")
-        return True
+        return False  # conservador: si no puedo validar, asumo que hay problema
 
     return True
 
@@ -122,10 +114,7 @@ def ejecutar_con_reintentos(cmd, logger, max_reintentos=3, timeout=None, es_gene
         logger.info(f"[Intento {intento}/{max_reintentos}] {cmd[1].split('/')[-1]}...")
 
         try:
-            mem_antes, mem_despues = limpiar_memoria()
-            if mem_antes:
-                logger.debug(f"   Memoria: {mem_antes:.1f}MB → {mem_despues:.1f}MB")
-
+            gc.collect()
             resultado = subprocess.run(
                 cmd,
                 cwd=SCRIPT_DIR,
@@ -193,6 +182,10 @@ def main():
         logger.error(f"Hora fuera de rango: {hora}")
         sys.exit(1)
 
+    if date.today() in FECHAS_SIN_CORTE:
+        logger.info(f"[SKIP] {date.today()} está en FECHAS_SIN_CORTE — no se genera ni envía el corte {hora:02d}:00")
+        return
+
     logger.info(f"{'='*70}")
     logger.info(f"[ORQUESTADO] Corte {hora:02d}:00 — Reintentos: {max_reintentos}")
     logger.info(f"{'='*70}")
@@ -247,7 +240,7 @@ def main():
     ]
 
     exito_capturar, cod_cap = ejecutar_con_reintentos(
-        cmd_capturar, logger, max_reintentos=max_reintentos, timeout=120
+        cmd_capturar, logger, max_reintentos=max_reintentos, timeout=TIMEOUT_CAPTURAR
     )
 
     if not exito_capturar:
